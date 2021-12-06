@@ -11,7 +11,6 @@ class Row(enum.IntEnum):
     THUMB = 4
 
 class Finger(enum.Enum):
-    UNKNOWN = -1
     LP = 0
     LR = 1
     LM = 2
@@ -22,19 +21,61 @@ class Finger(enum.Enum):
     RM = 7
     RR = 8
     RP = 9
+    UNKNOWN = 10
 
 class Fingermap:
 
-    name = ""
-    fingers = {}
+    loaded = {} # dict of fingermaps
+    
+    @staticmethod
+    def get(name):
+        try:
+            return Fingermap.loaded[name]
+        except KeyError:
+            Fingermap.loaded[name] = Fingermap(name)
+            return Fingermap.loaded[name]
 
     def __init__(self, name) -> None:
         self.name = name
+        self.fingers = {} # dict Pos -> Finger
+        self.cols = [] # list of lists of Pos
         with open("fingermaps/" + name) as file:
             self.build_from_string(file.read())
 
     def build_from_string(self, s):
+        rows = []
+        first_row = Row.NUMBER
+        first_col = 0
+        for row in s.split("\n"):
+            tokens = row.split(" ")
+            if tokens[0] == "first_pos:" and len(tokens) >= 3:
+                try:
+                    first_row = int(tokens[1])
+                except ValueError:
+                    first_row = Row[tokens[1]]
+                first_col = int(tokens[2])
+            else:
+                rows.append(tokens)
+        for r, row in enumerate(rows):
+            for c, token in enumerate(row):
+                if token:
+                    try:
+                        finger = int(token)
+                    except ValueError:
+                        try:
+                            finger = Finger[token]
+                        except KeyError:
+                            finger = Finger.UNKNOWN
+                    pos = Pos(r + first_row, c + first_col)
+                    self.fingers[pos] = finger
+                    self.cols[finger].append(pos)
+    
+    def load_fingermaps(self):
         pass
-
+    
     def get_finger(self, pos):
-        pass
+        return self.fingers[pos]
+
+    def get_column(self, finger):
+        return self.cols[finger]
+
