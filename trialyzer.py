@@ -1,5 +1,13 @@
-import layout
+import typetime
+import curses
+
+def main(stdscr: curses.window):
+    curses.curs_set(False)
+    curses.init_pair(1, curses.COLOR_RED, curses.COLOR_WHITE)
+    stdscr.addstr("test of the test", curses.color_pair(1))
+    stdscr.addstr(1, 0, "Press esc to exit")
+    stdscr.refresh()
+    typetime.test(stdscr)
 
 if __name__ == "__main__":
-    qwerty = layout.Layout("qwerty")
-    print(qwerty.keys)
+    curses.wrapper(main)
