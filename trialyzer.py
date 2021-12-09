@@ -1,4 +1,4 @@
-import typetime
+import typingtest
 import curses
 
 def main(stdscr: curses.window):
@@ -7,7 +7,7 @@ def main(stdscr: curses.window):
     stdscr.addstr("test of the test", curses.color_pair(1))
     stdscr.addstr(1, 0, "Press esc to exit")
     stdscr.refresh()
-    typetime.test(stdscr)
+    typingtest.test(stdscr)
 
 if __name__ == "__main__":
     curses.wrapper(main)
