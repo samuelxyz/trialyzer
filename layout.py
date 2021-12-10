@@ -3,14 +3,6 @@ import fingermap
 class Layout:
 
     loaded = {} # dict of layouts
-    
-    @staticmethod
-    def get(name):
-        try:
-            return Layout.loaded[name]
-        except KeyError:
-            Layout.loaded[name] = Layout(name)
-            return Layout.loaded[name]
 
     def __init__(self, name) -> None:
         self.name = name
@@ -27,7 +19,7 @@ class Layout:
         for row in s.split("\n"):
             tokens = row.split(" ")
             if tokens[0] == "fingermap:" and len(tokens) >= 2:
-                self.fingermap = fingermap.Fingermap.get(tokens[1])
+                self.fingermap = fingermap.get_fingermap(tokens[1])
             elif tokens[0] == "first_pos:" and len(tokens) >= 3:
                 try:
                     first_row = int(tokens[1])
@@ -42,11 +34,10 @@ class Layout:
                     pos = fingermap.Pos(first_row + r, first_col + c)
                     self.keys[pos] = key
                     self.positions[key] = pos
-        
-    def get_key(self, pos):
 
-        return self.keys[pos]
-
-    def get_position(self, key):
-
-        return self.positions[key]
+def get_layout(name: str) -> Layout:
+    try:
+        return Layout.loaded[name]
+    except KeyError:
+        Layout.loaded[name] = Layout(name)
+        return Layout.loaded[name]

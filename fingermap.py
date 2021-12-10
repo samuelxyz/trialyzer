@@ -26,24 +26,16 @@ class Finger(enum.Enum):
 class Fingermap:
 
     loaded = {} # dict of fingermaps
-    
-    @staticmethod
-    def get(name):
-        try:
-            return Fingermap.loaded[name]
-        except KeyError:
-            Fingermap.loaded[name] = Fingermap(name)
-            return Fingermap.loaded[name]
 
     def __init__(self, name) -> None:
         self.name = name
         self.fingers = {} # dict Pos -> Finger
-        self.cols = [] # list of lists of Pos
+        self.cols = {finger: [] for finger in Finger} # dict Finger -> list of Pos
         with open("fingermaps/" + name) as file:
             self.build_from_string(file.read())
 
     def build_from_string(self, s):
-        rows = []
+        rows = [] # rows in the string which specify the layout
         first_row = Row.NUMBER
         first_col = 0
         for row in s.split("\n"):
@@ -52,7 +44,7 @@ class Fingermap:
                 try:
                     first_row = int(tokens[1])
                 except ValueError:
-                    first_row = Row[tokens[1]]
+                    first_row = Row[tokens[1]].value
                 first_col = int(tokens[2])
             else:
                 rows.append(tokens)
@@ -60,7 +52,7 @@ class Fingermap:
             for c, token in enumerate(row):
                 if token:
                     try:
-                        finger = int(token)
+                        finger = Finger(int(token))
                     except ValueError:
                         try:
                             finger = Finger[token]
@@ -69,13 +61,10 @@ class Fingermap:
                     pos = Pos(r + first_row, c + first_col)
                     self.fingers[pos] = finger
                     self.cols[finger].append(pos)
-    
-    def load_fingermaps(self):
-        pass
-    
-    def get_finger(self, pos):
-        return self.fingers[pos]
 
-    def get_column(self, finger):
-        return self.cols[finger]
-
+def get_fingermap(name: str) -> Fingermap:
+    try:
+        return Fingermap.loaded[name]
+    except KeyError:
+        Fingermap.loaded[name] = Fingermap(name)
+        return Fingermap.loaded[name]

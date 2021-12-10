@@ -2,27 +2,21 @@ from pynput import keyboard
 import time
 import curses
 import queue
-import threading
+import layout
+import gui_util
 
-pynput_key_events = queue.Queue()
+key_events = queue.Queue()
 
 def on_press(key):
-    global pynput_key_events
-    pynput_key_events.put((key, "pressed", time.perf_counter_ns()))
+    global key_events
+    key_events.put((key, "pressed", time.perf_counter_ns()))
 
 def on_release(key):
-    global pynput_key_events
-    pynput_key_events.put((key, "released", 0))
+    global key_events
+    key_events.put((key, "released", 0))
     if key == keyboard.Key.esc:
         # Stop listener
         return False
-
-def curses_input(window: curses.window, key_events: queue.Queue):
-    while True:
-        key = window.getkey()
-        key_events.put((key, "pressed", time.perf_counter_ns()))
-        if key == "^[":
-            break
 
 def check_queue(window: curses.window, key_events: queue.Queue, last_time):
     while not key_events.empty():
@@ -34,7 +28,7 @@ def check_queue(window: curses.window, key_events: queue.Queue, last_time):
                 key_name = key
             ms = (new_time - last_time)/1e6
             wpm = 12000/ms
-            submit_line("Key {2} pressed after {0:.1f} ms ({1} wpm)".format(ms, int(wpm), key_name), window)
+            gui_util.insert_line_bottom("Key {2} pressed after {0:.1f} ms ({1} wpm)".format(ms, int(wpm), key_name), window)
             last_time = new_time
         # else:
         #     message('{0} released'.format(key), window)
@@ -42,34 +36,35 @@ def check_queue(window: curses.window, key_events: queue.Queue, last_time):
     window.refresh()
     return last_time
 
-def submit_line(str, window: curses.window):
-    window.move(0,0)
-    window.deleteln()
-    ymax, xmax = window.getmaxyx()
-    window.addnstr(ymax-1, 0, str, xmax-1)
+def test(window: curses.window, trigram, active_layout: layout.Layout):
+    '''Run a typing test with the specified trigram.
 
-def test(stdscr: curses.window):
+    trigram is either a 3-char string, or a list of three key names.'''
+
+    curses.echo(False)
+    if isinstance(trigram, str):
+        trigram = [char for char in trigram]
+    window.clear()
+    window.addstr(0, 0, "Typing test - Press esc to finish")
+    window.addstr(1, 0, "Active layout: " + active_layout.name)
+    window.addstr(2, 0, "Trigram: " + " ".join(trigram))
+    window.refresh()
     curses.curs_set(0)
-    height, width = stdscr.getmaxyx()
-    subwin_height = 3
-    pynput_win = stdscr.subwin(height - subwin_height - 1, int(width/2), subwin_height, 0)
-    curses_win = stdscr.subwin(height - subwin_height - 1, int(width/2), subwin_height, int(width/2))
+    height, width = window.getmaxyx()
+    typing_test_win = window.derwin(height - 4, width, 3, 0)
 
-    pynput_last_time = time.perf_counter_ns()
-    curses_last_time = pynput_last_time
+    last_time = time.perf_counter_ns()
 
     # Collect events until released
     pynput_listener = keyboard.Listener(on_press=on_press, on_release=on_release)
     pynput_listener.start()
     pynput_listener.wait()
-    global pynput_key_events
-    curses_key_events = queue.Queue()
-    curses_input_thread = threading.Thread(target=curses_input, args=(curses_win,curses_key_events), daemon=True)
-    curses_input_thread.start()
+    global key_events
     while pynput_listener.running:
         time.sleep(0.01)
-        pynput_last_time = check_queue(pynput_win, pynput_key_events, pynput_last_time)
-        curses_last_time = check_queue(curses_win, curses_key_events, curses_last_time)
-        stdscr.move(height-1, 0)
-    stdscr.getch()
+        last_time = check_queue(typing_test_win, key_events, last_time)
+        window.move(height-1, 0)
+
+    window.erase()
+    curses.flushinp()
     curses.curs_set(1)
