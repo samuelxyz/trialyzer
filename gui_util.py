@@ -1,13 +1,27 @@
 import curses
 
-def insert_line_bottom(str, window: curses.window, attr: int = ...):
-    window.move(0,0)
-    window.deleteln()
+def insert_line_bottom(text: str, window: curses.window, attr: int = ...):
+    """Scrolls a line in from the bottom of the window. 
+    Wraps overflow onto subsequent lines.
+    Does not refresh the window.
+    """
     ymax, xmax = window.getmaxyx()
+
+    while len(text) > xmax-1:
+        first_line = text[:xmax-1]
+        text = text[xmax-1:]
+        insert_line_bottom(first_line, window, attr)
+
+    # window.move(0,0)
+    # window.deleteln()
+    window.scrollok(True)
+    window.idlok(True)
+    window.scroll(1)
+
     if attr != ...:
-        window.addnstr(ymax-1, 0, str, xmax-1, attr)
+        window.addstr(ymax-1, 0, text, attr)
     else:
-        window.addnstr(ymax-1, 0, str, xmax-1)
+        window.addstr(ymax-1, 0, text)
 
 def debug_win(window: curses.window, label: str):
     window.border()
