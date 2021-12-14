@@ -20,6 +20,10 @@ def on_release(key):
         return False
 
 def wpm(ms) -> int:
+    """Returns the wpm conversion given the time taken to type a *bigram*. 
+    For a trigram, multiply this result by 2.
+    For a quadgram, multiply this result by 3, etc.
+    """
     return int(12000/ms)
 
 def test(window: curses.window, trigram, active_layout: layout.Layout):
@@ -110,7 +114,7 @@ def test(window: curses.window, trigram, active_layout: layout.Layout):
                 speeds_23.append(bigram_ms)
                 speeds_13.append(bigram_ms + speeds_12[-1])
                 message("Trigram complete, took {0:.1f} ms ({1} wpm)"
-                            .format(speeds_13[-1], wpm(speeds_13[-1])),
+                            .format(speeds_13[-1], wpm(speeds_13[-1])*2),
                         text_green)
 
             last_time = new_time
