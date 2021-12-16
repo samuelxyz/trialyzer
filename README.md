@@ -22,13 +22,13 @@ Much discussion has been had about whether different movements are better or wor
 - Is QWERTY's `ve` roll tolerable until you add `x` afterward? 
 - How bad is Colemak's `you` really, compared to the average redirect? Compared to `oyu`?
 
-Instead of taking same finger bigrams, skipgrams, rolls, and all those other stats, and combining them into an overall layout fitness using arbitrary weights, it is my hope that the trigram speed statistic will naturally incorporate the effects of all these stats into one overall layout speed score, with no weights required. However, we wouldn't be giving up the granularity of all those specific stats. In fact, we would be able to obtain *more* insight into, for example, exactly how bad each different sfb is, and how much they slow you down compared to the average non-sfb.
+Instead of taking same finger bigrams, skipgrams, rolls, and all those other stats, and combining them into an overall layout fitness using arbitrary weights, it is my hope that the trigram speed statistic will naturally incorporate the effects of all these stats into one overall layout speed score, with no arbitrary weight selection required. However, we wouldn't be giving up the granularity of all those specific stats. In fact, we would be able to obtain *more* insight into, for example, exactly how bad each different sfb is, and how much they slow you down compared to the average non-sfb.
 
-Here is an example of just some of the insight trialyzer might be able to provide (with fictitious numbers):
+Here is an example of the kinds of insight trialyzer might be able to provide (with fictitious numbers):
 
 - For layout A, the average keystroke time is 25.81 ms, giving a theoretical speed cap of 465 wpm. Of that average keystroke time, 4.08 ms (15.8%) is from redirects, which occur with a frequency of 6.89%.
 - For layout B, the average keystroke time is 27.65 ms, giving a theoretical speed cap of 434 wpm. Of that average keystroke time, 3.51 ms (12.7%) is from redirects, which occur with a frequency of 7.03%.
-- Therefore, we can say that layout B has more redirects than layout A, but those redirects aren't as bad. Perhaps we could break down the stats further to discover that layout A has redirects concentrated in the ring and pinky fingers, while layout B has redirects concentrated in the index and middle fingers.
+- Therefore, we can say that layout B has more redirects than layout A, but those redirects aren't as bad. Perhaps we could break down the stats further to discover that layout A has redirects concentrated in the ring and pinky fingers, while layout B has redirects concentrated in the index and middle fingers. Or maybe one layout has redirects that jump between rows, and the other doesn't.
 
 Of course, this approach comes with some limitations and drawbacks. 
 
@@ -36,19 +36,19 @@ Of course, this approach comes with some limitations and drawbacks.
     - For example, you might be able to type a lateral stretch bigram quickly, but that doesn't mean it's comfortable. 
     - Or, how does the workload of each finger weigh in? Fatigue may be reflected in a longer test, or your finger may be slowly strained to unhealthy levels over the course of weeks, but certainly not when typing one trigram at a time.
 - Considering just the main 30 keys of the keyboard, the number of possible trigrams is 27,000 - a very tedious number to sit through and test out one at a time, not even considering the number row, thumbs, and modifiers! 
-    - To help mitigate this, trialyzer will be able to analyze layouts even with incomplete trigram speed data, allowing you to build up your statistics over time instead of having to test through every single trigram first. 
-    - Additionally, as development progresses and we start measuring real data, it may turn out that only same-hand trigrams really show variation, while all alternating bigrams take roughly the same time. Or maybe you could mirror the trigrams of one hand to get a good approximation of the other hand's speeds. I don't know, I haven't seen that data yet! 
+    - To help mitigate this, trialyzer will be able to analyze layouts even with incomplete trigram speed data (by extrapolating from what data it does have), so you won't be forced to test through every single trigram before getting any use out of it. Notably, as development progresses and we start measuring real data, it may turn out that only same-hand n-grams really show variation, while all alternating bigrams have roughly the same speed. Or maybe you could mirror the trigrams of one hand to get a good approximation of the other hand's speeds. I don't know, I haven't seen that data yet! 
+    - Of course, extrapolation is never as good as actual complete data, so the more you test, the better the results will be. 
 
 ## Terminology
 
 **Layout**  
-A mapping between key names (`a`, `;`, `LShift`) and key positions (row, column). A fingermap is also specified. Examples: `qwerty`, `colemak_dh_ansi`.
+A mapping between key names (`a`, `;`, `LShift`) and key positions (row, column). A fingermap and board are also specified. Examples: `qwerty`, `colemak_dh_ansi`.
 
 **Fingermap**  
 A mapping between key positions (row, column) and fingers (`LI` for left index, `RP` for right pinky.) Examples: `traditional`, `angle_iso`.
 
 **Board**  
-A mapping between key positions (row, column) and physical locations of the keys (vertical and horizontal coordinates). Examples: `iso`, `matrix`. 
+A mapping between key positions (row, column) and physical locations of the keys (x and y coordinates). Examples: `iso`, `matrix`. 
 
 **Bigram, trigram, n-gram**  
 Existing terminology meaning a sequence of characters or key names. In trialyzer, these may be called "text n-grams" to distinguish them from physical n-grams (see below). However, I may slip up and sometimes just use terms like "trigram" ambiguously. Sorry.
