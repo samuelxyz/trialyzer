@@ -7,10 +7,8 @@ class Layout:
 
     def __init__(self, name: str) -> None:
         self.name = name
-        self.keys = {} # dict Pos -> keyname
-        self.positions = {} # dict keyname -> Pos
-        self.fingermap = None
-        self.board = None
+        self.keys = {} # dict[Pos, str]
+        self.positions = {} # dict[str, Pos]
         with open("layouts/" + name) as file:
             self.build_from_string(file.read())
 
@@ -43,9 +41,42 @@ class Layout:
         return (self.name + " (" + self.fingermap.name + ", " 
             + self.board.name +  ")")
 
+    def finger(self, keyname: str) -> fingermap.Finger:
+        return self.fingermap.fingers[self.positions[keyname]]
+
+    def coord(self, keyname: str) -> board.Coord:
+        return self.board.coords[self.positions[keyname]]
+
+    def  start_writable_row(self, trigram: list, note = None, fingers = ...):
+        """Returns a list of strings and floats, describing a physical
+        trigram, intended for writing to a row of a csv. Further entries 
+        should be appended to the end of this row, which would be the actual
+        typing speed data for that trigram.
+
+        trigram
+         A list of key names. Will be converted to coordinates based on the
+         board.
+        note 
+         A string for tagging a certain result as, for example, an
+         alt-fingering or a slide.
+        fingers
+         A list of length 3, such as ["RI", "RM", "RP"], specifying which
+         fingers were used to type the trigram. Leave blank to auto-calculate
+         from the fingermap.
+
+        Order of returned data:
+         note, fingers, coords
+        """
+        coords = [self.coord(char) for char in trigram]
+        if fingers == ...:
+            fingers = [self.finger(char).name for char in trigram]
+        result = [note] + fingers
+        for coord in coords:
+            result.append(coord.x)
+            result.append(coord.y)
+        return result
+
 def get_layout(name: str) -> Layout:
-    try:
-        return Layout.loaded[name]
-    except KeyError:
+    if name not in Layout.loaded:
         Layout.loaded[name] = Layout(name)
-        return Layout.loaded[name]
+    return Layout.loaded[name]

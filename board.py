@@ -10,8 +10,8 @@ class Board:
 
     def __init__(self, name: str) -> None:
         self.name = name
-        self.positions = {} # dict Coord -> Pos
-        self.coords = {} # dict Pos -> Coord
+        self.positions = {} # dict[Coord, Pos]
+        self.coords = {} # dict[Pos, Coord]
         with open("boards/" + name) as file:
             self.build_from_string(file.read())
 
@@ -37,8 +37,6 @@ class Board:
                 x += 1
 
 def get_board(name: str) -> Board:
-    try:
-        return Board.loaded[name]
-    except KeyError:
+    if name not in Board.loaded:
         Board.loaded[name] = Board(name)
-        return Board.loaded[name]
+    return Board.loaded[name]

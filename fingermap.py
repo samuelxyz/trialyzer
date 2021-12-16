@@ -30,8 +30,8 @@ class Fingermap:
 
     def __init__(self, name: str) -> None:
         self.name = name
-        self.fingers = {} # dict Pos -> Finger
-        self.cols = {finger: [] for finger in Finger} # dict Finger -> list[Pos]
+        self.fingers = {} # dict[Pos, Finger]
+        self.cols = {finger: [] for finger in Finger} # dict[Finger, list[Pos]]
         with open("fingermaps/" + name) as file:
             self.build_from_string(file.read())
 
@@ -64,8 +64,6 @@ class Fingermap:
                     self.cols[finger].append(pos)
 
 def get_fingermap(name: str) -> Fingermap:
-    try:
-        return Fingermap.loaded[name]
-    except KeyError:
+    if name not in Fingermap.loaded:
         Fingermap.loaded[name] = Fingermap(name)
-        return Fingermap.loaded[name]
+    return Fingermap.loaded[name]

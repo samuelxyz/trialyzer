@@ -71,11 +71,11 @@ def main(stdscr: curses.window):
             return
         elif command in ("t", "type"):
             if len(args[0]) == 3:
-                trigram = args[0]
+                trigram = [char for char in args[0]]
             elif len(args) == 3:
                 trigram = args
             else:
-                trigram = "abc" # TODO: Automatically pick a trigram
+                trigram = ["a", "b", "c"] # TODO: Automatically pick a trigram
             message("Starting typing test >>>", text_green)
             typingtest.test(right_pane, trigram, active_layout)
             message("Finished typing test", text_green)

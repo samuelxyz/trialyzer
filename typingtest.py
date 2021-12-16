@@ -26,15 +26,13 @@ def wpm(ms) -> int:
     """
     return int(12000/ms)
 
-def test(window: curses.window, trigram, active_layout: layout.Layout):
+def test(window: curses.window, trigram: list, active_layout: layout.Layout):
     """Run a typing test with the specified trigram.
 
-    trigram is either a 3-char string, or a list of three key names.
+    trigram is a list of three key names.
     """
 
     curses.curs_set(0)
-    if isinstance(trigram, str):
-        trigram = [char for char in trigram]
 
     window.clear()
     window.addstr(0, 0, "Typing test - Press esc to finish")
