@@ -90,7 +90,7 @@ def main(stdscr: curses.window):
                 except OSError:
                     message("That layout was not found.", text_red)
             else:
-                message("Active layout: " + active_layout.name, text_blue)
+                message("Active layout: " + str(active_layout), text_blue)
         elif command in ("d", "debug"):
             gui_util.debug_win(message_win, "message_win")
             gui_util.debug_win(right_pane, "right_pane")

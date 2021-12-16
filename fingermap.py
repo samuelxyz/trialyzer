@@ -1,7 +1,8 @@
 import enum
+
 from collections import namedtuple
 
-Pos = namedtuple("Pos", ["row", "col"])
+Pos = namedtuple("Pos", ["row", "col"]) # integer row and col
 
 class Row(enum.IntEnum):
     NUMBER = 0
@@ -10,7 +11,7 @@ class Row(enum.IntEnum):
     BOTTOM = 3
     THUMB = 4
 
-class Finger(enum.Enum):
+class Finger(enum.IntEnum):
     LP = 0
     LR = 1
     LM = 2
@@ -27,19 +28,19 @@ class Fingermap:
 
     loaded = {} # dict of fingermaps
 
-    def __init__(self, name) -> None:
+    def __init__(self, name: str) -> None:
         self.name = name
         self.fingers = {} # dict Pos -> Finger
-        self.cols = {finger: [] for finger in Finger} # dict Finger -> list of Pos
+        self.cols = {finger: [] for finger in Finger} # dict Finger -> list[Pos]
         with open("fingermaps/" + name) as file:
             self.build_from_string(file.read())
 
-    def build_from_string(self, s):
+    def build_from_string(self, s: str):
         rows = [] # rows in the string which specify the layout
         first_row = Row.NUMBER
         first_col = 0
         for row in s.split("\n"):
-            tokens = row.split(" ")
+            tokens = row.split(" ") # double spaces matter so not just .split()
             if tokens[0] == "first_pos:" and len(tokens) >= 3:
                 try:
                     first_row = int(tokens[1])

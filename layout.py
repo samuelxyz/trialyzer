@@ -1,18 +1,20 @@
+import board
 import fingermap
 
 class Layout:
 
     loaded = {} # dict of layouts
 
-    def __init__(self, name) -> None:
+    def __init__(self, name: str) -> None:
         self.name = name
         self.keys = {} # dict Pos -> keyname
         self.positions = {} # dict keyname -> Pos
-        self.fingermap = None # reference to an element of Fingermap.loaded
+        self.fingermap = None
+        self.board = None
         with open("layouts/" + name) as file:
             self.build_from_string(file.read())
 
-    def build_from_string(self, s):
+    def build_from_string(self, s: str):
         rows = []
         first_row = fingermap.Row.TOP
         first_col = 1
@@ -20,6 +22,8 @@ class Layout:
             tokens = row.split(" ")
             if tokens[0] == "fingermap:" and len(tokens) >= 2:
                 self.fingermap = fingermap.get_fingermap(tokens[1])
+            elif tokens[0] == "board:" and len(tokens) >= 2:
+                self.board = board.get_board(tokens[1])
             elif tokens[0] == "first_pos:" and len(tokens) >= 3:
                 try:
                     first_row = int(tokens[1])
@@ -34,6 +38,10 @@ class Layout:
                     pos = fingermap.Pos(first_row + r, first_col + c)
                     self.keys[pos] = key
                     self.positions[key] = pos
+
+    def __str__(self) -> str:
+        return (self.name + " (" + self.fingermap.name + ", " 
+            + self.board.name +  ")")
 
 def get_layout(name: str) -> Layout:
     try:
