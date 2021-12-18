@@ -26,7 +26,7 @@ class Board:
             x = float(tokens[2])
             y = float(tokens[3])
             if len(tokens) >= 5:
-                c2 = tokens[4]
+                c2 = int(tokens[4])
             else:
                 c2 = c1
             for c in range(c1, c2 + 1):

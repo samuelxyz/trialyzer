@@ -1,5 +1,8 @@
+from collections import namedtuple
 import board
 import fingermap
+
+Tristroke = namedtuple("Tristroke", "fingers coords")
 
 class Layout:
 
@@ -47,11 +50,11 @@ class Layout:
     def coord(self, keyname: str) -> board.Coord:
         return self.board.coords[self.positions[keyname]]
 
-    def  start_writable_row(self, trigram: list, note = None, fingers = ...):
-        """Returns a list of strings and floats, describing a physical
-        trigram, intended for writing to a row of a csv. Further entries 
-        should be appended to the end of this row, which would be the actual
-        typing speed data for that trigram.
+    def start_writable_row(self, trigram: list, note = None, fingers = ...):
+        """Returns a list of strings and floats, describing a tristroke, 
+        intended for writing to a row of a csv. Further entries should be 
+        appended to the end of this row, which would be the actual typing 
+        speed data for that trigram.
 
         trigram
          A list of key names. Will be converted to coordinates based on the
@@ -75,6 +78,10 @@ class Layout:
             result.append(coord.x)
             result.append(coord.y)
         return result
+
+    def to_tristroke(self, trigram: list) -> Tristroke:
+        return Tristroke(tuple(self.finger(char) for char in trigram),
+                      tuple(self.coord(char) for char in trigram))
 
 def get_layout(name: str) -> Layout:
     if name not in Layout.loaded:

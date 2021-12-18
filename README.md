@@ -48,12 +48,12 @@ A mapping between key names (`a`, `;`, `LShift`) and key positions (row, column)
 A mapping between key positions (row, column) and fingers (`LI` for left index, `RP` for right pinky.) Examples: `traditional`, `angle_iso`.
 
 **Board**  
-A mapping between key positions (row, column) and physical locations of the keys (vertical and horizontal coordinates). Examples: `iso`, `matrix`. 
+A mapping between key positions (row, column) and physical locations of the keys (x/y coordinates). Examples: `iso`, `matrix`. 
 
 **Bigram, trigram, n-gram**  
-Existing terminology meaning a sequence of characters or key names. In trialyzer, these may be called "text n-grams" to distinguish them from physical n-grams (see below). However, I may slip up and sometimes just use terms like "trigram" ambiguously. Sorry.
+Existing terminology meaning a sequence of characters or key names. These may be called "text n-grams" to further clarify that they refer only to key names, which may vary depending on layout, as opposed to physical keys on the board.
 
-**Physical bigram, trigram, n-gram**  
-A sequence of physical key locations on the board. Trialyzer collects data on the typing speeds of different physical trigrams using its built-in typing test, then applies it to analyze a selected layout by associating those physical trigrams with text trigrams. I was thinking of inventing the new terms "bikey", "trikey", and so on, but they just look funny as words, and wouldn't be easily understood for someone not reading through the bowels of this document, so that's on hold for now.
+**Bistroke, tristroke, n-stroke**  
+A sequence of physical key locations on the board, each associated with the finger used for that key. Trialyzer collects data on the typing speeds of different tristrokes using its built-in typing test, then applies it to analyze a selected layout by associating those tristrokes with text trigrams.
 
-(Note: Different fingermap-board combinations may have some physical trigrams in common; for instance, all physical trigrams involving the top and home row are identical between `traditional`-`ansi` and `angle_iso`-`iso`. Moreover, though the right hand is in a different position in `angle_iso`-`iso` versus `angle_wide_iso`-`iso`, the shape of each physical trigram on the right hand is identical. Trialyzer will detect these commonalities, and allow the relevant typing speed data to be shared between different boards.)
+(Note: Different fingermap-board combinations may have some tristrokes in common; for instance, all tristrokes involving the top and home row are identical between `traditional`-`ansi` and `angle_iso`-`iso`. Moreover, though the right hand is in a different position in `angle_iso`-`iso` versus `angle_wide_iso`-`iso`, the shape of each tristroke on the right hand is identical. Trialyzer will detect these commonalities, and allow the relevant typing speed data to be shared between different boards.)
