@@ -16,7 +16,7 @@ def on_press(key):
 
 def on_release(key):
     if key == keyboard.Key.esc:
-        # Stop listener
+        # Listener stops when False returned
         return False
 
 def wpm(ms) -> int:
@@ -92,19 +92,26 @@ def test(window: curses.window, trigram: list, active_layout: layout.Layout):
                 key_name = key                
             if str(key_name).startswith("Key."):
                 key_name = str(key_name)[4:]
+
             if key_name != trigram[next_index]:
                 if key_name == "esc":
                     message("Finishing test", text_green)
+                elif key_name in trigram:
+                    message("Key " + key_name + 
+                                " out of sequence, trigram invalidated",
+                            text_red)
+                    next_index = 0
+                    if len(speeds_12) != len(speeds_23):
+                        speeds_12.pop()
                 else:
-                    message("Disregarding wrong key " + key_name, text_red)
+                    message("Ignoring wrong key " + key_name, text_red)
                 continue
 
             # Key is correct, proceed
-            next_index = (next_index + 1) % 3
             bigram_ms = (new_time - last_time)/1e6
-            if next_index == 1: # first key just typed
+            if next_index == 0: # first key just typed
                 message("First key detected", text_blue)
-            elif next_index == 2: # second key just typed
+            elif next_index == 1: # second key just typed
                 speeds_12.append(bigram_ms)
                 message("Second key detected after {0:.1f} ms".format(bigram_ms),
                         text_blue)
@@ -112,9 +119,10 @@ def test(window: curses.window, trigram: list, active_layout: layout.Layout):
                 speeds_23.append(bigram_ms)
                 speeds_13.append(bigram_ms + speeds_12[-1])
                 message("Trigram complete, took {0:.1f} ms ({1} wpm)"
-                            .format(speeds_13[-1], wpm(speeds_13[-1])*2),
+                            .format(speeds_13[-1], 2*wpm(speeds_13[-1])),
                         text_green)
 
+            next_index = (next_index + 1) % 3
             last_time = new_time
             key_events.task_done()
         
@@ -129,8 +137,8 @@ def test(window: curses.window, trigram: list, active_layout: layout.Layout):
         window.refresh()
         window.move(height-1, 0)
 
-    message_win.erase()
-    window.erase()
     window.refresh()
     curses.flushinp()
     curses.curs_set(1)
+
+    return (speeds_12, speeds_23)
