@@ -1,3 +1,6 @@
+import csv
+import itertools
+
 import typingtest
 import curses
 import curses.textpad
@@ -12,6 +15,7 @@ def main(stdscr: curses.window):
             "[l]ayout [layout name]: Show or change active layout",
             "[d]ebug: Draw a box around the message window "
                 "(curses moment lmao)",
+            "[s]ave [filename]: Save tristroke data to /data/filename.csv",
             "[q]uit"
     ]
     
@@ -40,11 +44,23 @@ def main(stdscr: curses.window):
     curses.init_pair(text_green, curses.COLOR_GREEN, curses.COLOR_BLACK)
     curses.init_pair(text_blue, curses.COLOR_BLUE, curses.COLOR_BLACK)
     active_layout = layout.get_layout("qwerty")
+    unsaved_tristroke_data = []
 
-    def message(msg: str, color: int = 0): # mostly for brevity
+    def message(msg: str, color: int = 0):
         gui_util.insert_line_bottom(
             msg, message_win, curses.color_pair(color))
         message_win.refresh()
+
+    def get_input() -> str:
+        input_win.move(0,0)
+        curses.curs_set(1)
+
+        res = input_box.edit()
+
+        input_win.clear()
+        input_win.refresh()
+        message("> " + res)
+        return res
 
     while True:
         content_win.addstr(0, 0, "\n".join(startup_text))
@@ -53,31 +69,35 @@ def main(stdscr: curses.window):
 
         input_win.clear()
         input_win.refresh()
-        input_win.move(0,0)
-        curses.curs_set(1)
 
-        input_str = input_box.edit()
-
-        input_win.clear()
-        input_win.refresh()
-        message("> " + input_str)
-
-        args = input_str.split()
+        args = get_input().split()
         if not len(args):
             continue
         command = args.pop(0).lower()
 
         if command in ("q", "quit"):
+            if unsaved_tristroke_data:
+                message("Quit without saving? (y/n)", text_blue)
+                if get_input().strip().lower() in ("y", "yes"):
+                    return
+                else:
+                    continue
             return
         elif command in ("t", "type"):
-            if len(args[0]) == 3:
+            if not args:
+                trigram = "abc" # TODO: Automatically pick a trigram
+            elif len(args[0]) == 3:
                 trigram = [char for char in args[0]]
             elif len(args) == 3:
                 trigram = args
             else:
-                trigram = ["a", "b", "c"] # TODO: Automatically pick a trigram
+                message("Malformed trigram", text_red)
+                continue
             message("Starting typing test >>>", text_green)
-            typingtest.test(right_pane, trigram, active_layout)
+            unsaved_tristroke_data.append(
+                (active_layout.to_tristroke(trigram),
+                    typingtest.test(right_pane, trigram, active_layout))
+            )
             message("Finished typing test", text_green)
             input_win.clear()
         elif command in ("l", "layout"):
@@ -94,6 +114,34 @@ def main(stdscr: curses.window):
         elif command in ("d", "debug"):
             gui_util.debug_win(message_win, "message_win")
             gui_util.debug_win(right_pane, "right_pane")
+        elif command in ("s", "save"):
+            if not args:
+                filename = "default"
+            else:
+                filename = " ".join(args)
+            header = [
+                "note", "finger1", "finger2", "finger3",
+                "x1", "y1", "x2", "y2", "x3", "y3"
+            ]
+            # TODO: load existing data and merge with unsaved
+            with open("data/" + filename + ".csv", "w", newline="") as csvfile:
+                w = csv.writer(csvfile)
+                w.writerow(header)
+                for entry in unsaved_tristroke_data:
+                    row = start_writable_row(entry[0])
+                    row.extend(itertools.chain.from_iterable(
+                        zip(entry[1][0], entry[1][1])))
+                    w.writerow(row)
+            unsaved_tristroke_data.clear()
+            message("Data saved", text_green)
+
+def start_writable_row(tristroke: layout.Tristroke):
+    """Order of returned data: note, fingers, coords"""
+    
+    result = [tristroke.note]
+    result.extend(f.name for f in tristroke.fingers)
+    result.extend(itertools.chain.from_iterable(tristroke.coords))
+    return result
 
 if __name__ == "__main__":
     curses.wrapper(main)

@@ -1,8 +1,10 @@
 from collections import namedtuple
+from typing import Iterable
+
 import board
 import fingermap
 
-Tristroke = namedtuple("Tristroke", "fingers coords")
+Tristroke = namedtuple("Tristroke", "note fingers coords")
 
 class Layout:
 
@@ -50,40 +52,23 @@ class Layout:
     def coord(self, keyname: str) -> board.Coord:
         return self.board.coords[self.positions[keyname]]
 
-    def start_writable_row(self, trigram: list, note = None, fingers = ...):
-        """Returns a list of strings and floats, describing a tristroke, 
-        intended for writing to a row of a csv. Further entries should be 
-        appended to the end of this row, which would be the actual typing 
-        speed data for that trigram.
-
-        trigram
-         A list of key names. Will be converted to coordinates based on the
-         board.
-        note 
-         A string for tagging a certain result as, for example, an
-         alt-fingering or a slide.
-        fingers
-         A list of length 3, such as ["RI", "RM", "RP"], specifying which
-         fingers were used to type the trigram. Leave blank to auto-calculate
-         from the fingermap.
-
-        Order of returned data:
-         note, fingers, coords
+    def to_tristroke(self, trigram: Iterable[str], note: str = "", 
+                     fingers: Iterable[fingermap.Finger] = ...) -> Tristroke:
+        """Converts a trigram into a tristroke. Leave fingers blank
+        to auto-calculate from the keymap.
         """
-        coords = [self.coord(char) for char in trigram]
+        
         if fingers == ...:
-            fingers = [self.finger(char).name for char in trigram]
-        result = [note] + fingers
-        for coord in coords:
-            result.append(coord.x)
-            result.append(coord.y)
-        return result
-
-    def to_tristroke(self, trigram: list) -> Tristroke:
-        return Tristroke(tuple(self.finger(char) for char in trigram),
+            fingers = (self.finger(char) for char in trigram)
+        return Tristroke(note, tuple(fingers),
                       tuple(self.coord(char) for char in trigram))
 
 def get_layout(name: str) -> Layout:
     if name not in Layout.loaded:
         Layout.loaded[name] = Layout(name)
     return Layout.loaded[name]
+
+# for testing
+if __name__ == "__main__":
+    qwerty = get_layout("qwerty")
+    print(qwerty.start_writable_row(qwerty.to_tristroke("abc")))

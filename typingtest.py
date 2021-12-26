@@ -3,6 +3,7 @@ import queue
 import statistics
 
 import curses
+from typing import Iterable
 from pynput import keyboard
 
 import layout
@@ -26,7 +27,7 @@ def wpm(ms) -> int:
     """
     return int(12000/ms)
 
-def test(window: curses.window, trigram: list, active_layout: layout.Layout):
+def test(window: curses.window, trigram: Iterable[str], active_layout: layout.Layout):
     """Run a typing test with the specified trigram.
 
     trigram is a list of three key names.
