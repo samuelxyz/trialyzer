@@ -1,5 +1,8 @@
 import csv
 import itertools
+from os import path
+from board import Coord
+from fingermap import Finger
 
 import typingtest
 import curses
@@ -44,7 +47,7 @@ def main(stdscr: curses.window):
     curses.init_pair(text_green, curses.COLOR_GREEN, curses.COLOR_BLACK)
     curses.init_pair(text_blue, curses.COLOR_BLUE, curses.COLOR_BLACK)
     active_layout = layout.get_layout("qwerty")
-    unsaved_tristroke_data = []
+    unsaved_typingtest_data = []
 
     def message(msg: str, color: int = 0):
         gui_util.insert_line_bottom(
@@ -76,7 +79,7 @@ def main(stdscr: curses.window):
         command = args.pop(0).lower()
 
         if command in ("q", "quit"):
-            if unsaved_tristroke_data:
+            if unsaved_typingtest_data:
                 message("Quit without saving? (y/n)", text_blue)
                 if get_input().strip().lower() in ("y", "yes"):
                     return
@@ -85,18 +88,18 @@ def main(stdscr: curses.window):
             return
         elif command in ("t", "type"):
             if not args:
-                trigram = "abc" # TODO: Automatically pick a trigram
+                tristroke = "abc" # TODO: Automatically pick a trigram
             elif len(args[0]) == 3:
-                trigram = [char for char in args[0]]
+                tristroke = [char for char in args[0]]
             elif len(args) == 3:
-                trigram = args
+                tristroke = args
             else:
                 message("Malformed trigram", text_red)
                 continue
             message("Starting typing test >>>", text_green)
-            unsaved_tristroke_data.append(
-                (active_layout.to_tristroke(trigram),
-                    typingtest.test(right_pane, trigram, active_layout))
+            unsaved_typingtest_data.append(
+                (active_layout.to_tristroke(tristroke),
+                    typingtest.test(right_pane, tristroke, active_layout))
             )
             message("Finished typing test", text_green)
             input_win.clear()
@@ -115,33 +118,81 @@ def main(stdscr: curses.window):
             gui_util.debug_win(message_win, "message_win")
             gui_util.debug_win(right_pane, "right_pane")
         elif command in ("s", "save"):
+            if not unsaved_typingtest_data:
+                message("No unsaved data", text_blue)
+                continue
             if not args:
                 filename = "default"
             else:
                 filename = " ".join(args)
-            header = [
-                "note", "finger1", "finger2", "finger3",
-                "x1", "y1", "x2", "y2", "x3", "y3"
-            ]
-            # TODO: load existing data and merge with unsaved
-            with open("data/" + filename + ".csv", "w", newline="") as csvfile:
-                w = csv.writer(csvfile)
-                w.writerow(header)
-                for entry in unsaved_tristroke_data:
-                    row = start_writable_row(entry[0])
-                    row.extend(itertools.chain.from_iterable(
-                        zip(entry[1][0], entry[1][1])))
-                    w.writerow(row)
-            unsaved_tristroke_data.clear()
+            data = load_csv_data(filename)
+            for entry in unsaved_typingtest_data:
+                tristroke: layout.Tristroke = entry[0]
+                fingers = tristroke.fingers
+                if fingers not in data:
+                    data[fingers] = {}
+                if entry[0] not in data[fingers]:
+                    data[fingers][tristroke] = ([],[])
+                data[fingers][tristroke][0].extend(entry[1][0])
+                data[fingers][tristroke][1].extend(entry[1][1])
+            unsaved_typingtest_data.clear()
+            save_csv_data(data, filename)
             message("Data saved", text_green)
 
-def start_writable_row(tristroke: layout.Tristroke):
+def start_csv_row(tristroke: layout.Tristroke):
     """Order of returned data: note, fingers, coords"""
     
     result = [tristroke.note]
     result.extend(f.name for f in tristroke.fingers)
     result.extend(itertools.chain.from_iterable(tristroke.coords))
     return result
+
+def load_csv_data(filename: str):
+    """Returns a dict of the form:
+
+    dict[Tristroke.fingers, 
+         dict[Tristroke, 
+              (speeds12: list[float], speeds23: list[float])
+         ]
+    ]
+    """
+
+    data = {}
+    if not path.exists("data/" + filename + ".csv"):
+        return data
+
+    with open("data/" + filename + ".csv", "r", newline="") as csvfile:
+        reader = csv.DictReader(csvfile, restkey="speeds")
+        for row in reader:
+            fingers = tuple(
+                (Finger[row["finger"+str(n+1)]] for n in range(3)))
+            coords = tuple(
+                (Coord(row["x"+str(n+1)], 
+                       row["y"+str(n+1)]) for n in range(3)))
+            tristroke = layout.Tristroke(row["note"], fingers, coords)
+            if fingers not in data:
+                data[fingers] = {}
+            if tristroke not in data[fingers]:
+                data[fingers][tristroke] = ([], [])
+            for i, time in enumerate(row["speeds"]):
+                data[fingers][tristroke][i%2].append(time)
+    return data
+
+def save_csv_data(data: dict, filename: str):
+    header = [
+        "note", "finger1", "finger2", "finger3",
+        "x1", "y1", "x2", "y2", "x3", "y3"
+    ]
+    with open("data/" + filename + ".csv", "w", newline="") as csvfile:
+            w = csv.writer(csvfile)
+            w.writerow(header)
+            for fingers in data:
+                for tristroke in data[fingers]:
+                    row = start_csv_row(tristroke)
+                    row.extend(itertools.chain.from_iterable(
+                        zip(data[fingers][tristroke][0], 
+                            data[fingers][tristroke][1])))
+                    w.writerow(row)
 
 if __name__ == "__main__":
     curses.wrapper(main)
