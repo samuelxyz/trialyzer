@@ -12,17 +12,17 @@ class Row(enum.IntEnum):
     THUMB = 4
 
 class Finger(enum.IntEnum):
-    LP = 0
-    LR = 1
-    LM = 2
-    LI = 3
-    LT = 4
-    RT = 5
-    RI = 6
-    RM = 7
-    RR = 8
-    RP = 9
-    UNKNOWN = 10
+    LP = -5
+    LR = -4
+    LM = -3
+    LI = -2
+    LT = -1
+    RT = 1
+    RI = 2
+    RM = 3
+    RR = 4
+    RP = 5
+    UNKNOWN = 0
 
 class Fingermap:
 
