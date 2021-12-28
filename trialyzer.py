@@ -16,8 +16,6 @@ def main(stdscr: curses.window):
             "Commands:",
             "[t]ype <trigram>: Enter typing test",
             "[l]ayout [layout name]: Show or change active layout",
-            "[d]ebug: Draw a box around the message window "
-                "(curses moment lmao)",
             "[s]ave [filename]: Save tristroke data to /data/filename.csv",
             "[q]uit"
     ]
@@ -152,7 +150,7 @@ def load_csv_data(filename: str):
 
     dict[Tristroke.fingers, 
          dict[Tristroke, 
-              (speeds12: list[float], speeds23: list[float])
+              (speeds_01: list[float], speeds_12: list[float])
          ]
     ]
     """
@@ -165,10 +163,10 @@ def load_csv_data(filename: str):
         reader = csv.DictReader(csvfile, restkey="speeds")
         for row in reader:
             fingers = tuple(
-                (Finger[row["finger"+str(n+1)]] for n in range(3)))
+                (Finger[row["finger" + str(n)]] for n in range(3)))
             coords = tuple(
-                (Coord(row["x"+str(n+1)], 
-                       row["y"+str(n+1)]) for n in range(3)))
+                (Coord(row["x" + str(n)], 
+                       row["y" + str(n)]) for n in range(3)))
             tristroke = layout.Tristroke(row["note"], fingers, coords)
             if fingers not in data:
                 data[fingers] = {}
@@ -180,8 +178,8 @@ def load_csv_data(filename: str):
 
 def save_csv_data(data: dict, filename: str):
     header = [
-        "note", "finger1", "finger2", "finger3",
-        "x1", "y1", "x2", "y2", "x3", "y3"
+        "note", "finger0", "finger1", "finger2",
+        "x0", "y0", "x1", "y1", "x2", "y2"
     ]
     with open("data/" + filename + ".csv", "w", newline="") as csvfile:
             w = csv.writer(csvfile)
@@ -193,6 +191,8 @@ def save_csv_data(data: dict, filename: str):
                         zip(data[fingers][tristroke][0], 
                             data[fingers][tristroke][1])))
                     w.writerow(row)
+
+
 
 if __name__ == "__main__":
     curses.wrapper(main)

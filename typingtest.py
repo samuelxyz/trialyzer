@@ -70,9 +70,9 @@ def test(window: curses.window, trigram: Iterable[str], active_layout: layout.La
 
     last_time = time.perf_counter_ns()
     next_index = 0
+    speeds_01 = []
     speeds_12 = []
-    speeds_23 = []
-    speeds_13 = []
+    speeds_02 = []
     text_red = 1
     text_green = 2
     text_blue = 3
@@ -102,8 +102,8 @@ def test(window: curses.window, trigram: Iterable[str], active_layout: layout.La
                                 " out of sequence, trigram invalidated",
                             text_red)
                     next_index = 0
-                    if len(speeds_12) != len(speeds_23):
-                        speeds_12.pop()
+                    if len(speeds_01) != len(speeds_12):
+                        speeds_01.pop()
                 else:
                     message("Ignoring wrong key " + key_name, text_red)
                 continue
@@ -113,14 +113,14 @@ def test(window: curses.window, trigram: Iterable[str], active_layout: layout.La
             if next_index == 0: # first key just typed
                 message("First key detected", text_blue)
             elif next_index == 1: # second key just typed
-                speeds_12.append(bigram_ms)
+                speeds_01.append(bigram_ms)
                 message("Second key detected after {0:.1f} ms".format(bigram_ms),
                         text_blue)
             else: # trigram just completed
-                speeds_23.append(bigram_ms)
-                speeds_13.append(bigram_ms + speeds_12[-1])
+                speeds_12.append(bigram_ms)
+                speeds_02.append(bigram_ms + speeds_01[-1])
                 message("Trigram complete, took {0:.1f} ms ({1} wpm)"
-                            .format(speeds_13[-1], 2*wpm(speeds_13[-1])),
+                            .format(speeds_02[-1], 2*wpm(speeds_02[-1])),
                         text_green)
 
             next_index = (next_index + 1) % 3
@@ -130,9 +130,9 @@ def test(window: curses.window, trigram: Iterable[str], active_layout: layout.La
         for line in (3, 7, 11):
             stats_win.move(line, 0)
             stats_win.clrtoeol()
-        stats_win.addstr(3, 0, format_stats(speeds_12))
-        stats_win.addstr(7, 0, format_stats(speeds_23))
-        stats_win.addstr(11, 0, format_stats(speeds_13))
+        stats_win.addstr(3, 0, format_stats(speeds_01))
+        stats_win.addstr(7, 0, format_stats(speeds_12))
+        stats_win.addstr(11, 0, format_stats(speeds_02))
 
         stats_win.refresh()
         window.refresh()
@@ -142,4 +142,4 @@ def test(window: curses.window, trigram: Iterable[str], active_layout: layout.La
     curses.flushinp()
     curses.curs_set(1)
 
-    return (speeds_12, speeds_23)
+    return (speeds_01, speeds_12)
