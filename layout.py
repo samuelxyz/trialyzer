@@ -1,10 +1,20 @@
 from collections import namedtuple
+import itertools
+import operator
 from typing import Iterable
 
 import board
 import fingermap
 
 Tristroke = namedtuple("Tristroke", "note fingers coords")
+
+Nstroke = Tristroke
+
+def bistroke(tristroke: Tristroke, index0: int, index1: int):
+    # TODO: special handling for slides, altfingers etc
+    return Nstroke(tristroke.note, 
+        (tristroke.fingers[index0], tristroke.fingers[index1]),
+        (tristroke.coords[index0], tristroke.coords[index1]))
 
 class Layout:
 
@@ -52,16 +62,20 @@ class Layout:
     def coord(self, keyname: str) -> board.Coord:
         return self.board.coords[self.positions[keyname]]
 
-    def to_tristroke(self, trigram: Iterable[str], note: str = "", 
-                     fingers: Iterable[fingermap.Finger] = ...) -> Tristroke:
-        """Converts a trigram into a tristroke. Leave fingers blank
+    def to_nstroke(self, ngram: Iterable[str], note: str = "", 
+                     fingers: Iterable[fingermap.Finger] = ...) -> Nstroke:
+        """Converts an ngram into an nstroke. Leave fingers blank
         to auto-calculate from the keymap.
         """
         
         if fingers == ...:
-            fingers = (self.finger(char) for char in trigram)
-        return Tristroke(note, tuple(fingers),
-                      tuple(self.coord(char) for char in trigram))
+            fingers = (self.finger(char) for char in ngram)
+        return Nstroke(note, tuple(fingers),
+                      tuple(self.coord(char) for char in ngram))
+
+    def all_nstrokes(self, n: int = 3):
+        ngrams = itertools.product(self.keys.values(), repeat=n)
+        return (self.to_nstroke(ngram) for ngram in ngrams)
 
 def get_layout(name: str) -> Layout:
     if name not in Layout.loaded:
@@ -71,4 +85,4 @@ def get_layout(name: str) -> Layout:
 # for testing
 if __name__ == "__main__":
     qwerty = get_layout("qwerty")
-    print(qwerty.start_writable_row(qwerty.to_tristroke("abc")))
+    print(qwerty.start_writable_row(qwerty.to_nstroke("abc")))
