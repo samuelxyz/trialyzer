@@ -20,7 +20,8 @@ def main(stdscr: curses.window):
             "t[ype] <trigram>: Enter typing test",
             "l[ayout] [layout name]: Show or change active layout",
             "s[ave] [csvname]: Save tristroke data to /data/csvname.csv",
-            "bis[trokes] [csvname]: Show bistroke stats for active layout",
+            "bs|bistrokes [csvname]: Show applicable bistroke stats",
+            "ts|tristrokes [csvname]: Show applicable tristroke stats",
             "q[uit]"
     ]
     
@@ -66,6 +67,36 @@ def main(stdscr: curses.window):
         input_win.refresh()
         message("> " + res)
         return res
+
+    def print_stroke_categories(data: dict):
+        for category in sorted(data):
+            category_name: str = category
+            pad_char = " "
+            tag = "#"
+            if not category_name:
+                category_name = "total."
+            if category_name.endswith("."):
+                category_name = category_name[:-1] + " (total) "
+                pad_char = "-"
+            elif category_name.startswith("."):
+                category_name = "*" + category_name
+            else:
+                if "." not in category_name:
+                    pad_char = "-"
+                    category_name += " "
+                if data[category][1] < 0:
+                    tag = "!"
+                else:
+                    tag = ""
+            display_out = (
+                    "{:" + pad_char + "<26} {:>6.1f}   {:< 6}   {}"
+                ).format(
+                    category_name, float(data[category][0]), 
+                    data[category][1], tag
+                )
+            gui_util.insert_line_bottom(display_out, right_pane)
+        
+        right_pane.refresh()
 
     while True:
         content_win.addstr(0, 0, "\n".join(startup_text))
@@ -137,7 +168,7 @@ def main(stdscr: curses.window):
             unsaved_typingtest_data.clear()
             save_csv_data(data, filename)
             message("Data saved", text_green)
-        elif command in ("bis", "bistrokes"):
+        elif command in ("bs", "bistrokes"):
             if not args:
                 filename = "default"
             else:
@@ -147,11 +178,20 @@ def main(stdscr: curses.window):
             right_pane.clear()
             data = bistroke_category_data(get_medians_for_layout(
                 load_csv_data(filename), active_layout))
-            for category in sorted(data):
-                display_out = "{:.<17}{:>6.1f} ms (n={})".format(
-                    category, float(data[category][0]), data[category][1])
-                gui_util.insert_line_bottom(display_out, right_pane)
-            right_pane.refresh()
+            print_stroke_categories(data)
+        elif command in ("ts", "tristrokes"):
+            if not args:
+                filename = "default"
+            else:
+                filename = " ".join(args)
+            message("Crunching the numbers >>>", text_green)
+            message_win.refresh()
+            right_pane.clear()
+            data = tristroke_category_data(get_medians_for_layout(
+                load_csv_data(filename), active_layout))
+            header_line = "Category                       ms    n"
+            gui_util.insert_line_bottom(header_line, right_pane)
+            print_stroke_categories(data)
         else:
             message("Unrecognized command", text_red)            
 
@@ -213,12 +253,10 @@ def get_medians_for_layout(csv_data: dict, layout: layout.Layout):
     by_fingers = {} # dict[Finger, list[Tristroke]]
     speeds = {} # dict[Tristroke, (list[float], list[float])]
     medians = {}
-    for tristroke in layout.all_nstrokes():
-        if tristroke.fingers in by_fingers:
-            by_fingers[tristroke.fingers].append(tristroke)
-        else:
-            by_fingers[tristroke.fingers] = [tristroke]
     for csv_tristroke in csv_data:
+        if csv_tristroke.fingers not in by_fingers:
+            by_fingers[csv_tristroke.fingers] = tuple(
+                layout.nstrokes_with_fingers(csv_tristroke.fingers))
         for layout_tristroke in by_fingers[csv_tristroke.fingers]:
             if compatible(layout_tristroke, csv_tristroke):
                 if layout_tristroke not in speeds:
@@ -337,7 +375,8 @@ def detect_scissor_skip(tristroke: layout.Tristroke):
         return ""
 
 def detect_scissor_any(tristroke: layout.Tristroke):
-    return detect_scissor_roll(tristroke) + detect_scissor_skip(tristroke)
+    cat = detect_scissor_roll(tristroke) + detect_scissor_skip(tristroke)
+    return ".scissor_and_skip" if cat == ".scissor.scissor_skip" else cat
 
 def print_bistroke_categories(layoutname: str): # for debug
     lay = layout.get_layout(layoutname)
@@ -374,10 +413,11 @@ def bistroke_category_data(medians: dict):
     # now estimate missing data
     all_medians = {} # dict[category, list[median]]
     is_estimate = {} # dict[category, bool]
+    # If category ends with ".", it's purely a sum of others
     all_bistroke_categories = [
         "",
         "alt",
-        "roll",
+        "roll.",
         "roll.in",
         "roll.in.scissor",
         "roll.out",
@@ -427,23 +467,41 @@ def bistroke_category_data(medians: dict):
         )
     return result
                 
-def tristroke_category_data(csv_data: dict):
+def tristroke_category_data(medians: dict):
     """Returns a 
     dict[category: string, (speed: float, num_samples: int)]
-    where num_samples is the number of unique tristroke median speeds that have 
-    been averaged to obtain the speed stat. num_samples is positive if speed 
-    is obtained from known data, and negative if speed is estimated from 
-    related data, which occurs if no known data is directly applicable.
+    where num_samples is the number of unique bistroke/tristroke median 
+    speeds that have been combined to obtain the speed stat. num_samples 
+    is positive if speed is obtained from known data, and negative if speed 
+    is estimated from related data, which occurs if no known data is 
+    directly applicable.
     
     Note that medians is the output of get_medians_for_layout()."""
+    known_medians = {} # dict[category, list[median]]
+    scissor_categories = [
+        ".scissor",
+        ".scissor.twice",
+        ".scissor_and_skip",
+        ".scissor_skip",]
+    for tristroke in medians:
+        category = tristroke_category(tristroke)
+        try:
+            known_medians[category].append(medians[tristroke][2])
+        except KeyError:
+            known_medians[category] = [medians[tristroke][2]]
+        
+    # now estimate missing data
+    all_medians = {} # dict[category, list[median]]
+    is_estimate = {} # dict[category, bool]
+    # If category starts or ends with ".", it's purely a sum of others
     all_tristroke_categories = [
         "",
-        "alt",
+        "alt.",
         "alt.in",
         "alt.in.scissor_skip",
         "alt.out",
         "alt.out.scissor_skip",
-        "onehand",
+        "onehand.",
         "onehand.in",
         "onehand.in.scissor",
         "onehand.in.scissor.twice",
@@ -452,23 +510,24 @@ def tristroke_category_data(csv_data: dict):
         "onehand.out.scissor.twice",
         "redirect",
         "redirect.scissor",
-        "redirect.scissor.scissor_skip",
+        "redirect.scissor_and_skip",
         "redirect.scissor_skip",
-        "roll",
+        "roll.",
         "roll.in",
         "roll.in.scissor",
         "roll.out",
         "roll.out.scissor",
-        "scissor",
-        "scissor.twice",
-        "scissor_skip",
-        "sfb",
+        ".scissor",
+        ".scissor.twice",
+        ".scissor_and_skip",
+        ".scissor_skip",
+        "sfb.",
         "sfb.alt",
         "sfb.roll.in",
         "sfb.roll.in.scissor",
         "sfb.roll.out",
         "sfb.roll.out.scissor",
-        "sfs",
+        "sfs.",
         "sfs.alt",
         "sfs.redirect",
         "sfs.redirect.scissor",
@@ -476,5 +535,54 @@ def tristroke_category_data(csv_data: dict):
         "sft"
     ]
 
+    # Initial transfer
+    for category in all_tristroke_categories: # sorted general -> specific
+        if category in known_medians:
+            all_medians[category] = known_medians[category]
+            is_estimate[category] = False
+        else: # fill in from subcategories
+            all_medians[category] = []
+            is_estimate[category] = True
+            if category.startswith("."):
+                for instance in known_medians:
+                    if instance.endswith(category):
+                        all_medians[category].extend(known_medians[instance])
+            else:
+                for subcategory in known_medians:
+                    if subcategory.startswith(category):
+                        all_medians[category].extend(known_medians[subcategory])
+            # There may be no subcategories with known data either. 
+            # Hence the next stages
+    
+    # Build up some stuff from trigrams
+    # if not all_medians["sfb"]:
+    #     for tristroke in medians:
+    #         if tristroke_category(tristroke).startswith("sfs"):
+    #             all_medians["sfb"].append(medians[tristroke][2])
+    
+    # fill in from supercategory
+    all_tristroke_categories.reverse() # most specific first
+    for category in all_tristroke_categories:
+        if not all_medians[category]: # data needed
+            for supercategory in all_tristroke_categories: # most specific first
+                if (category.startswith(supercategory) and 
+                        bool(all_medians[supercategory])):
+                    all_medians[category] = all_medians[supercategory]
+                    break
+    # If there is still any category with no data at this point, that means
+    # there was literally no data in ANY category. that's just a bruh moment
+
+    result = {}
+    for category in all_medians:
+        try:
+            mean = statistics.mean(all_medians[category])
+        except statistics.StatisticsError:
+            mean = 0 # bruh
+        result[category] = (
+            mean,
+            -len(all_medians[category]) if is_estimate[category]
+                else len(all_medians[category])
+        )
+    return result
 if __name__ == "__main__":
     curses.wrapper(main)

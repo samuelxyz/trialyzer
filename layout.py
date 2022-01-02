@@ -77,6 +77,14 @@ class Layout:
         ngrams = itertools.product(self.keys.values(), repeat=n)
         return (self.to_nstroke(ngram) for ngram in ngrams)
 
+    def nstrokes_with_fingers(self, fingers: Iterable[fingermap.Finger]):
+        options = []
+        for finger in fingers:
+            options.append((
+                self.keys[pos] for pos in self.fingermap.cols[finger] 
+                    if pos in self.keys))
+        return (self.to_nstroke(item) for item in itertools.product(*options))
+
 def get_layout(name: str) -> Layout:
     if name not in Layout.loaded:
         Layout.loaded[name] = Layout(name)
@@ -85,4 +93,6 @@ def get_layout(name: str) -> Layout:
 # for testing
 if __name__ == "__main__":
     qwerty = get_layout("qwerty")
-    print(qwerty.start_writable_row(qwerty.to_nstroke("abc")))
+    abc = qwerty.to_nstroke("abc")
+    for item in qwerty.nstrokes_with_fingers(abc.fingers):
+        print(item)
