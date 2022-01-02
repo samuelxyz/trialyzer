@@ -402,13 +402,16 @@ def bistroke_category_data(medians: dict):
     
     Note that medians is the output of get_medians_for_layout()."""
     known_medians = {} # dict[category, list[median]]
+    total = [] # list[median]
     for tristroke in medians:
         for indices in ((0, 1), (1, 2)):
+            data = medians[tristroke][indices[0]]
+            total.append(data)
             category = bistroke_category(tristroke, *indices)
             try:
-                known_medians[category].append(medians[tristroke][indices[0]])
+                known_medians[category].append(data)
             except KeyError:
-                known_medians[category] = [medians[tristroke][indices[0]]]
+                known_medians[category] = [data]
     
     # now estimate missing data
     all_medians = {} # dict[category, list[median]]
@@ -429,8 +432,10 @@ def bistroke_category_data(medians: dict):
             all_medians[category] = known_medians[category]
             is_estimate[category] = False
         else:
-            all_medians[category] = []
             is_estimate[category] = True
+            if not category:
+                is_estimate[category] = total
+            all_medians[category] = []
             for subcategory in known_medians:
                 if subcategory.startswith(category):
                     all_medians[category].extend(known_medians[subcategory])
@@ -478,17 +483,15 @@ def tristroke_category_data(medians: dict):
     
     Note that medians is the output of get_medians_for_layout()."""
     known_medians = {} # dict[category, list[median]]
-    scissor_categories = [
-        ".scissor",
-        ".scissor.twice",
-        ".scissor_and_skip",
-        ".scissor_skip",]
+    total = [] # list[median]
     for tristroke in medians:
+        data = medians[tristroke][2]
+        total.append(data)
         category = tristroke_category(tristroke)
         try:
-            known_medians[category].append(medians[tristroke][2])
+            known_medians[category].append(data)
         except KeyError:
-            known_medians[category] = [medians[tristroke][2]]
+            known_medians[category] = [data]
         
     # now estimate missing data
     all_medians = {} # dict[category, list[median]]
@@ -541,8 +544,11 @@ def tristroke_category_data(medians: dict):
             all_medians[category] = known_medians[category]
             is_estimate[category] = False
         else: # fill in from subcategories
-            all_medians[category] = []
             is_estimate[category] = True
+            if not category:
+                all_medians[category] = total
+                continue
+            all_medians[category] = []
             if category.startswith("."):
                 for instance in known_medians:
                     if instance.endswith(category):
