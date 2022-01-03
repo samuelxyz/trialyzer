@@ -3,79 +3,15 @@ import itertools
 import operator
 import statistics
 from os import path
-from typing import Sequence
+
 from board import Coord
 from fingermap import Finger
-
+from nstroke import *
 import typingtest
 import curses
 import curses.textpad
 import layout
 import gui_util
-
-# If category starts or ends with ".", it's purely a sum of others
-all_bistroke_categories = [
-    "",
-    "alt",
-    "roll.",
-    "roll.in",
-    "roll.in.scissor",
-    "roll.out",
-    "roll.out.scissor",
-    "sfb"
-]
-all_tristroke_categories = [
-    "",
-    "alt.",
-    "alt.in",
-    "alt.in.scissor_skip",
-    "alt.out",
-    "alt.out.scissor_skip",
-    "onehand.",
-    "onehand.in",
-    "onehand.in.scissor",
-    "onehand.in.scissor.twice",
-    "onehand.out",
-    "onehand.out.scissor",
-    "onehand.out.scissor.twice",
-    "redirect",
-    "redirect.scissor",
-    "redirect.scissor_and_skip",
-    "redirect.scissor_skip",
-    "roll.",
-    "roll.in",
-    "roll.in.scissor",
-    "roll.out",
-    "roll.out.scissor",
-    ".scissor",
-    ".scissor.twice",
-    ".scissor_and_skip",
-    ".scissor_skip",
-    "sfb.",
-    "sfb.alt",
-    "sfb.roll.in",
-    "sfb.roll.in.scissor",
-    "sfb.roll.out",
-    "sfb.roll.out.scissor",
-    "sfs.",
-    "sfs.alt",
-    "sfs.redirect",
-    "sfs.redirect.scissor",
-    "sfs.redirect.scissor.twice",
-    "sft"
-]
-category_display_names = {
-    "": "total",
-    "alt.": "alt",
-    "onehand.": "onehand",
-    "roll.": "roll",
-    ".scissor": "*.scissor",
-    ".scissor.twice": "*.scissor.twice",
-    ".scissor_and_skip": "*.scissor_and_skip",
-    ".scissor_skip": "*.scissor_skip",
-    "sfb.": "sfb",
-    "sfs.": "sfs"
-}
 
 def main(stdscr: curses.window):
     
@@ -133,29 +69,26 @@ def main(stdscr: curses.window):
         message("> " + res)
         return res
 
-    def print_stroke_categories(data: dict):
+    def print_stroke_categories(data: dict, counts = None):
         for category in sorted(data):
             category_name = (category_display_names[category] 
                 if category in category_display_names else category)
             pad_char = " "
-            tag = "#"
             if category.endswith(".") or not category:
                 category_name += " (total) "
                 pad_char = "-"
-            else:
+            if not category.startswith("."):
                 if "." not in category_name:
                     pad_char = "-"
                     category_name += " "
-                if data[category][1] < 0:
-                    tag = "!"
-                else:
-                    tag = ""
             display_out = (
-                    "{:" + pad_char + "<26} {:>6.1f}   {:< 6}   {}"
+                    "{:" + pad_char + "<26} {:>6.1f}   {:< 6}"
                 ).format(
                     category_name, float(data[category][0]), 
-                    data[category][1], tag
+                    data[category][1]
                 )
+            if counts:
+                display_out += "/{:<6}".format(counts[category])
             gui_util.insert_line_bottom(display_out, right_pane)
         
         right_pane.refresh()
@@ -231,7 +164,7 @@ def main(stdscr: curses.window):
                 filename = " ".join(args)
             data = load_csv_data(filename)
             for entry in unsaved_typingtest_data:
-                tristroke: layout.Tristroke = entry[0]
+                tristroke: Tristroke = entry[0]
                 if tristroke not in data:
                     data[tristroke] = ([],[])
                 data[tristroke][0].extend(entry[1][0])
@@ -265,7 +198,8 @@ def main(stdscr: curses.window):
                 load_csv_data(filename), active_layout))
             header_line = "Category                       ms    n"
             gui_util.insert_line_bottom(header_line, right_pane)
-            print_stroke_categories(data)
+            active_layout.preprocessors["counts"].join()
+            print_stroke_categories(data, active_layout.counts)
         elif command in ("tc",):
             filename = "default"
             if not args:
@@ -349,7 +283,7 @@ def main(stdscr: curses.window):
         else:
             message("Unrecognized command", text_red)            
 
-def start_csv_row(tristroke: layout.Tristroke):
+def start_csv_row(tristroke: Tristroke):
     """Order of returned data: note, fingers, coords"""
     
     result = [tristroke.note]
@@ -377,7 +311,7 @@ def load_csv_data(filename: str):
             coords = tuple(
                 (Coord(float(row["x" + str(n)]), 
                        float(row["y" + str(n)])) for n in range(3)))
-            tristroke = layout.Tristroke(row["note"], fingers, coords)
+            tristroke = Tristroke(row["note"], fingers, coords)
             if tristroke not in data:
                 data[tristroke] = ([], [])
             for i, time in enumerate(row["speeds"]):
@@ -430,107 +364,6 @@ def get_medians_for_layout(csv_data: dict, layout: layout.Layout):
             statistics.median(speeds_02)
         )
     return medians
-
-def compatible(a: layout.Tristroke, b: layout.Tristroke):
-    """Assumes it is already known that a.fingers == b.fingers.
-    
-    Tristrokes are compatible if they are equal, or if 
-    there exists a pair of floats c1 and c2, which when added
-    to the x-coords of the left and right hands respectively, 
-    cause the tristrokes to become equal."""
-    if a == b:
-        return True
-    for ac, bc in zip(a.coords, b.coords):
-        if ac.y != bc.y:
-            return False
-    for i, j in itertools.combinations(range(3), 2):
-        if (a.fingers[i] > 0) == (a.fingers[j] > 0):
-            if ((a.coords[i].x - a.coords[j].x) !=
-                    (b.coords[i].x - b.coords[j].x)):
-                return False
-    return True
-
-def bifinger_category(fingers: Sequence[Finger]):
-    # Used by both bistroke_category() and tristroke_category()
-    if Finger.UNKNOWN in fingers:
-        return "unknown"
-    elif (fingers[0] > 0) != (fingers[1] > 0):
-        return "alt"
-
-    delta = abs(fingers[1]) - abs(fingers[0])
-    if delta == 0:
-        return "sfb"
-    else:
-        return "roll.out" if delta > 0 else "roll.in"
-
-def bistroke_category(nstroke: layout.Nstroke, 
-                      index0: int = 0, index1: int = 1):
-    category = bifinger_category((nstroke.fingers[index0],
-                                  nstroke.fingers[index1]))
-    if category.startswith("roll"):
-        category += detect_scissor(nstroke, index0, index1)
-    return category
-
-def tristroke_category(tristroke: layout.Tristroke):
-    if Finger.UNKNOWN in tristroke.fingers:
-        return "unknown"
-    first, skip, second = map(
-        bifinger_category, itertools.combinations(tristroke.fingers, 2))
-    if skip == "sfb":
-        if first == "sfb":
-            return "sft"
-        if first.startswith("roll"):
-            return "sfs.redirect" + detect_scissor_roll(tristroke)
-        else:
-            return "sfs.alt" + detect_scissor_skip(tristroke)
-    elif first == "sfb":
-        return "sfb." + second + detect_scissor(tristroke, 1, 2)
-    elif second == "sfb":
-        return "sfb." + first + detect_scissor(tristroke, 0, 1)
-    elif first == "alt" and second == "alt":
-        return "alt" + skip[4:] + detect_scissor_skip(tristroke)
-    elif first.startswith("roll"):
-        if second.startswith("roll"):
-            if first == second:
-                return "onehand" + first[4:] + detect_scissor_roll(tristroke)
-            else:
-                return "redirect" + detect_scissor_any(tristroke)
-        else:
-            return first + detect_scissor(tristroke, 0, 1) # roll
-    else: # second.startswith("roll")
-        return second + detect_scissor(tristroke, 1, 2) # roll
-
-def detect_scissor(nstroke: layout.Nstroke, index0: int = 0, index1: int = 1):
-    """Given that the keys (optionally specified by index) are typed with the 
-    same hand, return \".scissor\" if neighboring fingers must reach coords 
-    that are a distance of 2.0 apart or farther. Return an empty string 
-    otherwise."""
-    if abs(nstroke.fingers[index0] - nstroke.fingers[index1]) != 1:
-        return ""
-    vec = map(operator.sub, nstroke.coords[index0], nstroke.coords[index1])
-    dist_sq = sum((n**2 for n in vec))
-    return ".scissor" if dist_sq >= 4 else ""
-
-def detect_scissor_roll(tristroke: layout.Tristroke):
-    if detect_scissor(tristroke, 0, 1):
-        if detect_scissor(tristroke, 1, 2):
-            return ".scissor.twice"
-        else:
-            return ".scissor"
-    elif detect_scissor(tristroke, 1, 2):
-        return ".scissor"
-    else:
-        return ""
-
-def detect_scissor_skip(tristroke: layout.Tristroke):
-    if detect_scissor(tristroke, 0, 2):
-        return ".scissor_skip"
-    else:
-        return ""
-
-def detect_scissor_any(tristroke: layout.Tristroke):
-    cat = detect_scissor_roll(tristroke) + detect_scissor_skip(tristroke)
-    return ".scissor_and_skip" if cat == ".scissor.scissor_skip" else cat
 
 def print_bistroke_categories(layoutname: str): # for debug
     lay = layout.get_layout(layoutname)
@@ -641,13 +474,14 @@ def tristroke_category_data(medians: dict):
     all_medians = {} # dict[category, list[median]]
     is_estimate = {} # dict[category, bool]
 
+    all_categories = all_tristroke_categories.copy()
+
     # Initial transfer
-    for category in all_tristroke_categories: # sorted general -> specific
+    for category in all_categories: # sorted general -> specific
+        is_estimate[category] = False
         if category in known_medians:
             all_medians[category] = known_medians[category]
-            is_estimate[category] = False
         else: # fill in from subcategories
-            is_estimate[category] = True
             if not category:
                 all_medians[category] = total
                 continue
@@ -657,6 +491,8 @@ def tristroke_category_data(medians: dict):
                     if instance.endswith(category):
                         all_medians[category].extend(known_medians[instance])
             else:
+                if not category.endswith("."):
+                    is_estimate[category] = True
                 for subcategory in known_medians:
                     if subcategory.startswith(category):
                         all_medians[category].extend(known_medians[subcategory])
@@ -670,14 +506,22 @@ def tristroke_category_data(medians: dict):
     #             all_medians["sfb"].append(medians[tristroke][2])
     
     # fill in from supercategory
-    all_tristroke_categories.reverse() # most specific first
-    for category in all_tristroke_categories:
-        if not all_medians[category]: # data needed
-            for supercategory in all_tristroke_categories: # most specific first
+    all_categories.reverse() # most specific first
+    for category in all_categories:
+        if not all_medians[category] and not category.startswith("."):
+            for supercategory in all_categories:
                 if (category.startswith(supercategory) and 
-                        bool(all_medians[supercategory])):
+                        bool(all_medians[supercategory]) and
+                        category != supercategory):
                     all_medians[category] = all_medians[supercategory]
                     break
+    # fill in scissors from subcategories
+    for category in all_categories:
+        if not all_medians[category] and category.startswith("."):
+            is_estimate[category] = True # the subcategory is an estimate
+            for instance in all_categories:
+                if (instance.endswith(category) and instance != category):
+                    all_medians[category].extend(all_medians[instance])
     # If there is still any category with no data at this point, that means
     # there was literally no data in ANY category. that's just a bruh moment
 
@@ -706,14 +550,7 @@ def data_for_tristroke_category(category: str, medians: dict):
     speeds_with_fingers = {finger: [] for finger in list(Finger)}
     speeds_without_fingers = {finger: [] for finger in list(Finger)}
 
-    if category.endswith("."):
-        applicable = lambda cat: cat.startswith(category)
-    elif category.startswith("."):
-        applicable = lambda cat: cat.endswith(category)
-    elif not category:
-        applicable = lambda cat: True
-    else:
-        applicable = lambda cat: cat == category
+    applicable = applicable_function(category)
 
     for tristroke in medians:
         cat = tristroke_category(tristroke)
@@ -742,6 +579,5 @@ def data_for_tristroke_category(category: str, medians: dict):
     
     return (speed, num_samples, with_fingers, without_fingers)
     
-
 if __name__ == "__main__":
     curses.wrapper(main)

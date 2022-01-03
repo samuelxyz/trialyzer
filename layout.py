@@ -1,20 +1,10 @@
-from collections import namedtuple
 import itertools
-import operator
 from typing import Iterable
+import threading
 
 import board
 import fingermap
-
-Tristroke = namedtuple("Tristroke", "note fingers coords")
-
-Nstroke = Tristroke
-
-def bistroke(tristroke: Tristroke, index0: int, index1: int):
-    # TODO: special handling for slides, altfingers etc
-    return Nstroke(tristroke.note, 
-        (tristroke.fingers[index0], tristroke.fingers[index1]),
-        (tristroke.coords[index0], tristroke.coords[index1]))
+from nstroke import *
 
 class Layout:
 
@@ -24,8 +14,15 @@ class Layout:
         self.name = name
         self.keys = {} # dict[Pos, str]
         self.positions = {} # dict[str, Pos]
+        self.counts = {category: 0 for category in all_tristroke_categories}
+        self.preprocessors = {
+            "counts": threading.Thread(
+                target=calculate_counts_wrapper, args=(self,), daemon=True)
+        }
         with open("layouts/" + name) as file:
             self.build_from_string(file.read())
+        for name in self.preprocessors:
+            self.preprocessors[name].start()
 
     def build_from_string(self, s: str):
         rows = []
@@ -52,6 +49,16 @@ class Layout:
                     self.keys[pos] = key
                     self.positions[key] = pos
 
+    def calculate_counts(self):
+        for tristroke in self.all_nstrokes(3):
+            self.counts[tristroke_category(tristroke)] += 1
+        for category in all_tristroke_categories:
+            if not self.counts[category]:
+                applicable = applicable_function(category)
+                for instance in all_tristroke_categories:
+                    if applicable(instance):
+                        self.counts[category] += self.counts[instance]
+    
     def __str__(self) -> str:
         return (self.name + " (" + self.fingermap.name + ", " 
             + self.board.name +  ")")
@@ -89,6 +96,9 @@ def get_layout(name: str) -> Layout:
     if name not in Layout.loaded:
         Layout.loaded[name] = Layout(name)
     return Layout.loaded[name]
+
+def calculate_counts_wrapper(*args, **kwargs):
+    args[0].calculate_counts()
 
 # for testing
 if __name__ == "__main__":
