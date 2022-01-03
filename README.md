@@ -10,6 +10,10 @@ Uses Python packages:
 - `pynput`
 - `curses` (on windows, use `windows-curses`)
 
+Usage:
+- Once you have the above packages installed in your environment, run `trialyzer.py`.
+- I'll probably get around to a requirements.txt eventually maybe possibly.
+
 ## Motivation
 
 Recent analyzers such as [genkey](https://github.com/semilin/genkey) have included novel analysis concepts such as fingerspeed, in addition to the common bigram, trigram, and generalized n-gram stats (frequency of same finger bigrams/skipgrams, neighbor finger bigrams, lateral stretch bigrams, alternation, rolls, onehands, and redirects). However, in evaluating the overall fitness of a layout, the relative weights of all these different statistics generally must be selected arbitrarily. A noteworthy exception is that [semi](https://github.com/semilin) partially determined his weights by [using a script](https://semilin.github.io/semimak/#orgb1cc038) to measure the physical typing speed of each finger on selected same finger bigrams, and used that data to weight how bad sfb's are on each finger. This started me thinking.
