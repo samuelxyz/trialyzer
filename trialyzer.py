@@ -3,6 +3,7 @@ import itertools
 import operator
 import statistics
 from os import path
+import math
 
 from board import Coord
 from fingermap import Finger
@@ -22,11 +23,12 @@ def main(stdscr: curses.window):
             "s[ave] [csvname]: Save tristroke data to /data/csvname.csv",
             "bs|bistrokes [csvname]: Show applicable bistroke stats",
             "ts|tristrokes [csvname]: Show applicable tristroke stats",
-            "tc <category> [csvname]: Show stats for tristroke category",
+            "tsc [category] [csvname]: Show stats for tristroke category",
             "q[uit]"
     ]
     
     curses.curs_set(0)
+    gui_util.init_colors()
 
     height, width = stdscr.getmaxyx()
     titlebar = stdscr.subwin(1,width,0,0)
@@ -44,12 +46,6 @@ def main(stdscr: curses.window):
     input_win = content_win.derwin(height-2, 2)
     input_box = curses.textpad.Textbox(input_win, True)
     
-    text_red = 1
-    text_green = 2
-    text_blue = 3
-    curses.init_pair(text_red, curses.COLOR_RED, curses.COLOR_BLACK)
-    curses.init_pair(text_green, curses.COLOR_GREEN, curses.COLOR_BLACK)
-    curses.init_pair(text_blue, curses.COLOR_BLUE, curses.COLOR_BLACK)
     active_layout = layout.get_layout("qwerty")
     unsaved_typingtest_data = []
 
@@ -69,7 +65,47 @@ def main(stdscr: curses.window):
         message("> " + res)
         return res
 
-    def print_stroke_categories(data: dict, counts = None):
+    def print_stroke_categories(data: dict, counts: dict = None):
+        right_pane.scrollok(True)
+        right_pane.idlok(True)
+        right_pane.scroll(len(data))
+        ymax = right_pane.getmaxyx()[0]
+        row = ymax - len(data)
+
+        p_pairs = {} # proportion completed
+        s_pairs = {} # speeds
+        c_pairs = {} # total count
+
+        if counts:
+            # log causes better usage of the gradient
+            log_counts = {cat: math.log(counts[cat]) for cat in counts}
+            cmin = min(log_counts.values())
+            cmax = max(log_counts.values())
+            completion = {}
+            for category in data:
+                if data[category][1] > 0:
+                    # sqrt makes smaller differences more visible
+                    completion[category] = math.sqrt(
+                        data[category][1]/counts[category])
+                else:
+                    completion[category] = 0
+            for category in data:
+                p_pairs[category] = curses.color_pair(gui_util.color_scale(
+                    min(completion.values()), max(completion.values()),
+                    completion[category]))
+                c_pairs[category] = curses.color_pair(gui_util.color_scale(
+                    cmin, cmax, 
+                    log_counts[category]))
+        else:
+            for category in data:
+                p_pairs[category] = curses.color_pair(0)
+
+        for category in data:
+            s_pairs[category] = curses.color_pair(gui_util.color_scale(
+                max(val[0] for val in data.values()),
+                min(val[0] for val in data.values()), 
+                data[category][0]))
+        
         for category in sorted(data):
             category_name = (category_display_names[category] 
                 if category in category_display_names else category)
@@ -81,15 +117,19 @@ def main(stdscr: curses.window):
                 if "." not in category_name:
                     pad_char = "-"
                     category_name += " "
-            display_out = (
-                    "{:" + pad_char + "<26} {:>6.1f}   {:< 6}"
-                ).format(
-                    category_name, float(data[category][0]), 
-                    data[category][1]
-                )
+            right_pane.addstr(
+                row, 0, ("{:" + pad_char + "<26}").format(category_name))
+            right_pane.addstr(
+                row, 27, "{:>6.1f}".format(float(data[category][0])),
+                s_pairs[category])
+            right_pane.addstr(
+                row, 36, "{:< 6}".format(data[category][1]),
+                p_pairs[category])
             if counts:
-                display_out += "/{:<6}".format(counts[category])
-            gui_util.insert_line_bottom(display_out, right_pane)
+                right_pane.addstr(
+                    row, 43, "/{:<6}".format(counts[category]), 
+                    c_pairs[category])
+            row += 1
         
         right_pane.refresh()
 
@@ -97,9 +137,9 @@ def main(stdscr: curses.window):
         good = path.exists("data/" + filename + ".csv")
         if not good:
             if filename == "default":
-                message("No csv data was found.", text_red) 
+                message("No csv data was found.", gui_util.red) 
             else:   
-                message("That csv was not found.", text_red)
+                message("That csv was not found.", gui_util.red)
         return good
    
     while True:
@@ -117,7 +157,7 @@ def main(stdscr: curses.window):
 
         if command in ("q", "quit"):
             if unsaved_typingtest_data:
-                message("Quit without saving? (y/n)", text_blue)
+                message("Quit without saving? (y/n)", gui_util.blue)
                 if get_input().strip().lower() in ("y", "yes"):
                     return
                 else:
@@ -131,14 +171,14 @@ def main(stdscr: curses.window):
             elif len(args) == 3:
                 tristroke = args
             else:
-                message("Malformed trigram", text_red)
+                message("Malformed trigram", gui_util.red)
                 continue
-            message("Starting typing test >>>", text_green)
+            message("Starting typing test >>>", gui_util.green)
             unsaved_typingtest_data.append(
                 (active_layout.to_nstroke(tristroke),
                     typingtest.test(right_pane, tristroke, active_layout))
             )
-            message("Finished typing test", text_green)
+            message("Finished typing test", gui_util.green)
             input_win.clear()
         elif command in ("l", "layout"):
             layout_name = " ".join(args)
@@ -146,17 +186,14 @@ def main(stdscr: curses.window):
                 try:
                     active_layout = layout.get_layout(layout_name)
                     message("Set " + layout_name + " as the active layout.",
-                            text_green)
+                            gui_util.green)
                 except OSError:
-                    message("That layout was not found.", text_red)
+                    message("That layout was not found.", gui_util.red)
             else:
-                message("Active layout: " + str(active_layout), text_blue)
-        elif command in ("d", "debug"):
-            gui_util.debug_win(message_win, "message_win")
-            gui_util.debug_win(right_pane, "right_pane")
+                message("Active layout: " + str(active_layout), gui_util.blue)
         elif command in ("s", "save"):
             if not unsaved_typingtest_data:
-                message("No unsaved data", text_blue)
+                message("No unsaved data", gui_util.blue)
                 continue
             if not args:
                 filename = "default"
@@ -171,7 +208,7 @@ def main(stdscr: curses.window):
                 data[tristroke][1].extend(entry[1][1])
             unsaved_typingtest_data.clear()
             save_csv_data(data, filename)
-            message("Data saved", text_green)
+            message("Data saved", gui_util.green)
         elif command in ("bs", "bistrokes"):
             if not args:
                 filename = "default"
@@ -179,7 +216,7 @@ def main(stdscr: curses.window):
                 filename = " ".join(args)
             if not csv_exists(filename):
                 continue
-            message("Crunching the numbers >>>", text_green)
+            message("Crunching the numbers >>>", gui_util.green)
             message_win.refresh()
             right_pane.clear()
             data = bistroke_category_data(get_medians_for_layout(
@@ -192,15 +229,15 @@ def main(stdscr: curses.window):
                 filename = " ".join(args)
             if not csv_exists(filename):
                 continue
-            message("Crunching the numbers >>>", text_green)
+            message("Crunching the numbers >>>", gui_util.green)
             right_pane.clear()
             data = tristroke_category_data(get_medians_for_layout(
                 load_csv_data(filename), active_layout))
-            header_line = "Category                       ms    n"
+            header_line = "Category                       ms    n     possible"
             gui_util.insert_line_bottom(header_line, right_pane)
             active_layout.preprocessors["counts"].join()
             print_stroke_categories(data, active_layout.counts)
-        elif command in ("tc",):
+        elif command in ("tsc",):
             filename = "default"
             if not args:
                 category_name = ""
@@ -222,66 +259,88 @@ def main(stdscr: curses.window):
                         category = cat
                         break
             else:
-                message("Unrecognized category", text_red)
+                message("Unrecognized category", gui_util.red)
                 continue
             
-            message("Crunching the numbers >>>", text_green)
+            message("Crunching the numbers >>>", gui_util.green)
             (speed, num_samples, with_fingers, without_fingers
             ) = data_for_tristroke_category(category, get_medians_for_layout(
                 load_csv_data(filename), active_layout
             ))
             display_name = (category_display_names[category] 
                 if category in category_display_names else category)
-            gui_util.insert_line_bottom(
-                ("\nTristroke category: {}\nAverage ""{:.2f} ms, n={}\n")
-                    .format(display_name, speed, num_samples),
-                right_pane)
-            spacing = 5
-            indent = 17
+            row = right_pane.getmaxyx()[0] - 18
             lh_fingers = tuple(
                 finger.name for finger in reversed(sorted(Finger)) if finger < 0)
             rh_fingers = tuple(
                 finger.name for finger in sorted(Finger) if finger > 0)
+            spacing = 5
+            indent = 17
             lh_fingers_label = " " * indent + (" " * spacing).join(lh_fingers)
             rh_fingers_label = " " * indent + (" " * spacing).join(rh_fingers)
             dash = "-" * len(lh_fingers_label)
-            speeds_left = "speeds (ms): " + " ".join(("{:>6.1f}".format(
-                with_fingers[Finger[finger]][0]) for finger in lh_fingers
-            ))
-            n_left = "       n = : " + " ".join(("{:>6}".format(
-                with_fingers[Finger[finger]][1]) for finger in lh_fingers
-            ))
-            speeds_right = "speeds (ms): " + " ".join(("{:>6.1f}".format(
-                with_fingers[Finger[finger]][0]) for finger in rh_fingers
-            ))
-            n_right = "       n = : " + " ".join(("{:>6}".format(
-                with_fingers[Finger[finger]][1]) for finger in rh_fingers
-            ))
-            gui_util.insert_line_bottom("\n".join((
-                "With finger:", dash,
-                lh_fingers_label, speeds_left, n_left, dash,
-                rh_fingers_label, speeds_right, n_right, dash,
-                "")), right_pane)
-            speeds_left = "speeds (ms): " + " ".join(("{:>6.1f}".format(
-                without_fingers[Finger[finger]][0]) for finger in lh_fingers
-            ))
-            n_left = "       n = : " + " ".join(("{:>6}".format(
-                without_fingers[Finger[finger]][1]) for finger in lh_fingers
-            ))
-            speeds_right = "speeds (ms): " + " ".join(("{:>6.1f}".format(
-                without_fingers[Finger[finger]][0]) for finger in rh_fingers
-            ))
-            n_right = "       n = : " + " ".join(("{:>6}".format(
-                without_fingers[Finger[finger]][1]) for finger in rh_fingers
-            ))
-            gui_util.insert_line_bottom("\n".join((
-                "Without finger:", dash,
-                lh_fingers_label, speeds_left, n_left, dash,
-                rh_fingers_label, speeds_right, n_right, dash)),
+            speeds_label = "speeds (ms): "
+            n_label =  "       n = : "
+
+            gui_util.insert_line_bottom(
+                ("\nTristroke category: {}\nAverage ""{:.2f} ms, n={}")
+                    .format(display_name, speed, num_samples),
                 right_pane)
+            
+            for withname in ("\nWith finger:", "\nWithout finger:"):
+                gui_util.insert_line_bottom(withname + "\n" + dash, right_pane)
+                for label in (lh_fingers_label, rh_fingers_label):
+                    gui_util.insert_line_bottom(
+                        "\n".join((
+                            label, speeds_label, n_label, dash
+                        )),
+                    right_pane)
+
+            for data in (with_fingers, without_fingers):
+                speeds = tuple(data[finger][0] for finger in list(Finger))
+                ns = tuple(data[finger][1] for finger in list(Finger))
+                sworst = max(speeds)
+                sbest = min(filter(None, speeds))
+                nworst = min(ns)
+                nbest = max(ns)
+                    
+                for finglist in (lh_fingers, rh_fingers):
+                    col = len(speeds_label)
+                    for finger in finglist:
+                        right_pane.addstr(
+                            row, col, "{:>6.1f}".format(
+                                data[Finger[finger]][0]),
+                            curses.color_pair(gui_util.color_scale(
+                                sworst, sbest, data[Finger[finger]][0], True)))
+                        right_pane.addstr(
+                            row+1, col, "{:>6}".format(
+                                data[Finger[finger]][1]),
+                            curses.color_pair(gui_util.color_scale(
+                                nworst, nbest, data[Finger[finger]][1])))
+                        col += 7
+                    row += 4
+                row += 3
+            
             right_pane.refresh()
+            input_win.move(0,0)
+        # Debug commands
+        elif command == "debug":
+            gui_util.debug_win(message_win, "message_win")
+            gui_util.debug_win(right_pane, "right_pane")
+        elif command == "colors":
+            message("COLORS: {}".format(curses.COLORS))
+            message("COLOR_PAIRS: {}".format(curses.COLOR_PAIRS))
+            ymax = right_pane.getmaxyx()[0]
+            for i in range(curses.COLOR_PAIRS):
+                right_pane.addstr(
+                    i % ymax, 9*int(i/ymax), 
+                    "Color {}".format(i), curses.color_pair(i))
+            right_pane.refresh()
+        elif command == "gradient":
+            for i, color in enumerate(gui_util.gradient_colors):
+                message("Gradient level {}".format(i), color)
         else:
-            message("Unrecognized command", text_red)            
+            message("Unrecognized command", gui_util.red)            
 
 def start_csv_row(tristroke: Tristroke):
     """Order of returned data: note, fingers, coords"""

@@ -73,9 +73,9 @@ def test(window: curses.window, trigram: Iterable[str], active_layout: layout.La
     speeds_01 = []
     speeds_12 = []
     speeds_02 = []
-    text_red = 1
-    text_green = 2
-    text_blue = 3
+    gui_util.red = 1
+    gui_util.green = 2
+    gui_util.blue = 3
 
     pynput_listener = keyboard.Listener(on_press=on_press,
                                         on_release=on_release)
@@ -96,32 +96,32 @@ def test(window: curses.window, trigram: Iterable[str], active_layout: layout.La
 
             if key_name != trigram[next_index]:
                 if key_name == "esc":
-                    message("Finishing test", text_green)
+                    message("Finishing test", gui_util.green)
                 elif key_name in trigram:
                     message("Key " + key_name + 
                                 " out of sequence, trigram invalidated",
-                            text_red)
+                            gui_util.red)
                     next_index = 0
                     if len(speeds_01) != len(speeds_12):
                         speeds_01.pop()
                 else:
-                    message("Ignoring wrong key " + key_name, text_red)
+                    message("Ignoring wrong key " + key_name, gui_util.red)
                 continue
 
             # Key is correct, proceed
             bigram_ms = (new_time - last_time)/1e6
             if next_index == 0: # first key just typed
-                message("First key detected", text_blue)
+                message("First key detected", gui_util.blue)
             elif next_index == 1: # second key just typed
                 speeds_01.append(bigram_ms)
                 message("Second key detected after {0:.1f} ms".format(bigram_ms),
-                        text_blue)
+                        gui_util.blue)
             else: # trigram just completed
                 speeds_12.append(bigram_ms)
                 speeds_02.append(bigram_ms + speeds_01[-1])
                 message("Trigram complete, took {0:.1f} ms ({1} wpm)"
                             .format(speeds_02[-1], 2*wpm(speeds_02[-1])),
-                        text_green)
+                        gui_util.green)
 
             next_index = (next_index + 1) % 3
             last_time = new_time
