@@ -13,6 +13,70 @@ import curses.textpad
 import layout
 import gui_util
 
+# If category starts or ends with ".", it's purely a sum of others
+all_bistroke_categories = [
+    "",
+    "alt",
+    "roll.",
+    "roll.in",
+    "roll.in.scissor",
+    "roll.out",
+    "roll.out.scissor",
+    "sfb"
+]
+all_tristroke_categories = [
+    "",
+    "alt.",
+    "alt.in",
+    "alt.in.scissor_skip",
+    "alt.out",
+    "alt.out.scissor_skip",
+    "onehand.",
+    "onehand.in",
+    "onehand.in.scissor",
+    "onehand.in.scissor.twice",
+    "onehand.out",
+    "onehand.out.scissor",
+    "onehand.out.scissor.twice",
+    "redirect",
+    "redirect.scissor",
+    "redirect.scissor_and_skip",
+    "redirect.scissor_skip",
+    "roll.",
+    "roll.in",
+    "roll.in.scissor",
+    "roll.out",
+    "roll.out.scissor",
+    ".scissor",
+    ".scissor.twice",
+    ".scissor_and_skip",
+    ".scissor_skip",
+    "sfb.",
+    "sfb.alt",
+    "sfb.roll.in",
+    "sfb.roll.in.scissor",
+    "sfb.roll.out",
+    "sfb.roll.out.scissor",
+    "sfs.",
+    "sfs.alt",
+    "sfs.redirect",
+    "sfs.redirect.scissor",
+    "sfs.redirect.scissor.twice",
+    "sft"
+]
+category_display_names = {
+    "": "total",
+    "alt.": "alt",
+    "onehand.": "onehand",
+    "roll.": "roll",
+    ".scissor": "*.scissor",
+    ".scissor.twice": "*.scissor.twice",
+    ".scissor_and_skip": "*.scissor_and_skip",
+    ".scissor_skip": "*.scissor_skip",
+    "sfb.": "sfb",
+    "sfs.": "sfs"
+}
+
 def main(stdscr: curses.window):
     
     startup_text = [
@@ -22,6 +86,7 @@ def main(stdscr: curses.window):
             "s[ave] [csvname]: Save tristroke data to /data/csvname.csv",
             "bs|bistrokes [csvname]: Show applicable bistroke stats",
             "ts|tristrokes [csvname]: Show applicable tristroke stats",
+            "tc <category> [csvname]: Show stats for tristroke category",
             "q[uit]"
     ]
     
@@ -70,16 +135,13 @@ def main(stdscr: curses.window):
 
     def print_stroke_categories(data: dict):
         for category in sorted(data):
-            category_name: str = category
+            category_name = (category_display_names[category] 
+                if category in category_display_names else category)
             pad_char = " "
             tag = "#"
-            if not category_name:
-                category_name = "total."
-            if category_name.endswith("."):
-                category_name = category_name[:-1] + " (total) "
+            if category.endswith(".") or not category:
+                category_name += " (total) "
                 pad_char = "-"
-            elif category_name.startswith("."):
-                category_name = "*" + category_name
             else:
                 if "." not in category_name:
                     pad_char = "-"
@@ -98,6 +160,15 @@ def main(stdscr: curses.window):
         
         right_pane.refresh()
 
+    def csv_exists(filename: str):
+        good = path.exists("data/" + filename + ".csv")
+        if not good:
+            if filename == "default":
+                message("No csv data was found.", text_red) 
+            else:   
+                message("That csv was not found.", text_red)
+        return good
+   
     while True:
         content_win.addstr(0, 0, "\n".join(startup_text))
         content_win.addstr(height-2, 0, "> ")
@@ -173,6 +244,8 @@ def main(stdscr: curses.window):
                 filename = "default"
             else:
                 filename = " ".join(args)
+            if not csv_exists(filename):
+                continue
             message("Crunching the numbers >>>", text_green)
             message_win.refresh()
             right_pane.clear()
@@ -184,14 +257,95 @@ def main(stdscr: curses.window):
                 filename = "default"
             else:
                 filename = " ".join(args)
+            if not csv_exists(filename):
+                continue
             message("Crunching the numbers >>>", text_green)
-            message_win.refresh()
             right_pane.clear()
             data = tristroke_category_data(get_medians_for_layout(
                 load_csv_data(filename), active_layout))
             header_line = "Category                       ms    n"
             gui_util.insert_line_bottom(header_line, right_pane)
             print_stroke_categories(data)
+        elif command in ("tc",):
+            filename = "default"
+            if not args:
+                category_name = ""
+            else:
+                category_name = args[0].lower().strip()
+                if len(args) >= 2:
+                    filename = args[1]
+            if not csv_exists(filename):
+                continue
+
+            if "(" in category_name:
+                category_name = category_name[:category_name.find("(")].strip()
+                # )) missing parentheses for rainbow brackets extension lmao
+            if category_name in all_tristroke_categories:
+                category = category_name
+            elif category_name in category_display_names.values():
+                for cat in category_display_names:
+                    if category_display_names[cat] == category_name:
+                        category = cat
+                        break
+            else:
+                message("Unrecognized category", text_red)
+                continue
+            
+            message("Crunching the numbers >>>", text_green)
+            (speed, num_samples, with_fingers, without_fingers
+            ) = data_for_tristroke_category(category, get_medians_for_layout(
+                load_csv_data(filename), active_layout
+            ))
+            display_name = (category_display_names[category] 
+                if category in category_display_names else category)
+            gui_util.insert_line_bottom(
+                ("\nTristroke category: {}\nAverage ""{:.2f} ms, n={}\n")
+                    .format(display_name, speed, num_samples),
+                right_pane)
+            spacing = 5
+            indent = 17
+            lh_fingers = tuple(
+                finger.name for finger in reversed(sorted(Finger)) if finger < 0)
+            rh_fingers = tuple(
+                finger.name for finger in sorted(Finger) if finger > 0)
+            lh_fingers_label = " " * indent + (" " * spacing).join(lh_fingers)
+            rh_fingers_label = " " * indent + (" " * spacing).join(rh_fingers)
+            dash = "-" * len(lh_fingers_label)
+            speeds_left = "speeds (ms): " + " ".join(("{:>6.1f}".format(
+                with_fingers[Finger[finger]][0]) for finger in lh_fingers
+            ))
+            n_left = "       n = : " + " ".join(("{:>6}".format(
+                with_fingers[Finger[finger]][1]) for finger in lh_fingers
+            ))
+            speeds_right = "speeds (ms): " + " ".join(("{:>6.1f}".format(
+                with_fingers[Finger[finger]][0]) for finger in rh_fingers
+            ))
+            n_right = "       n = : " + " ".join(("{:>6}".format(
+                with_fingers[Finger[finger]][1]) for finger in rh_fingers
+            ))
+            gui_util.insert_line_bottom("\n".join((
+                "With finger:", dash,
+                lh_fingers_label, speeds_left, n_left, dash,
+                rh_fingers_label, speeds_right, n_right, dash,
+                "")), right_pane)
+            speeds_left = "speeds (ms): " + " ".join(("{:>6.1f}".format(
+                without_fingers[Finger[finger]][0]) for finger in lh_fingers
+            ))
+            n_left = "       n = : " + " ".join(("{:>6}".format(
+                without_fingers[Finger[finger]][1]) for finger in lh_fingers
+            ))
+            speeds_right = "speeds (ms): " + " ".join(("{:>6.1f}".format(
+                without_fingers[Finger[finger]][0]) for finger in rh_fingers
+            ))
+            n_right = "       n = : " + " ".join(("{:>6}".format(
+                without_fingers[Finger[finger]][1]) for finger in rh_fingers
+            ))
+            gui_util.insert_line_bottom("\n".join((
+                "Without finger:", dash,
+                lh_fingers_label, speeds_left, n_left, dash,
+                rh_fingers_label, speeds_right, n_right, dash)),
+                right_pane)
+            right_pane.refresh()
         else:
             message("Unrecognized command", text_red)            
 
@@ -247,7 +401,7 @@ def save_csv_data(data: dict, filename: str):
 
 def get_medians_for_layout(csv_data: dict, layout: layout.Layout):
     """Take csv data, find tristrokes that are applicable to the given layout,
-    and obtain speeds_01, speeds_12, and speeds_02 as medians.
+    and obtain speeds_01, speeds_12, and speeds_02 as medians per tristroke.
     
     Returns a dict[Tristroke, (float, float, float)]"""
     by_fingers = {} # dict[Finger, list[Tristroke]]
@@ -416,17 +570,7 @@ def bistroke_category_data(medians: dict):
     # now estimate missing data
     all_medians = {} # dict[category, list[median]]
     is_estimate = {} # dict[category, bool]
-    # If category ends with ".", it's purely a sum of others
-    all_bistroke_categories = [
-        "",
-        "alt",
-        "roll.",
-        "roll.in",
-        "roll.in.scissor",
-        "roll.out",
-        "roll.out.scissor",
-        "sfb"
-    ]
+    
     for category in all_bistroke_categories: # sorted general -> specific
         if category in known_medians:
             all_medians[category] = known_medians[category]
@@ -496,47 +640,6 @@ def tristroke_category_data(medians: dict):
     # now estimate missing data
     all_medians = {} # dict[category, list[median]]
     is_estimate = {} # dict[category, bool]
-    # If category starts or ends with ".", it's purely a sum of others
-    all_tristroke_categories = [
-        "",
-        "alt.",
-        "alt.in",
-        "alt.in.scissor_skip",
-        "alt.out",
-        "alt.out.scissor_skip",
-        "onehand.",
-        "onehand.in",
-        "onehand.in.scissor",
-        "onehand.in.scissor.twice",
-        "onehand.out",
-        "onehand.out.scissor",
-        "onehand.out.scissor.twice",
-        "redirect",
-        "redirect.scissor",
-        "redirect.scissor_and_skip",
-        "redirect.scissor_skip",
-        "roll.",
-        "roll.in",
-        "roll.in.scissor",
-        "roll.out",
-        "roll.out.scissor",
-        ".scissor",
-        ".scissor.twice",
-        ".scissor_and_skip",
-        ".scissor_skip",
-        "sfb.",
-        "sfb.alt",
-        "sfb.roll.in",
-        "sfb.roll.in.scissor",
-        "sfb.roll.out",
-        "sfb.roll.out.scissor",
-        "sfs.",
-        "sfs.alt",
-        "sfs.redirect",
-        "sfs.redirect.scissor",
-        "sfs.redirect.scissor.twice",
-        "sft"
-    ]
 
     # Initial transfer
     for category in all_tristroke_categories: # sorted general -> specific
@@ -590,5 +693,55 @@ def tristroke_category_data(medians: dict):
                 else len(all_medians[category])
         )
     return result
+
+def data_for_tristroke_category(category: str, medians: dict):
+    """Returns (speed: float, num_samples: int, 
+    with_fingers: dict[Finger, (speed: float, num_samples: int)],
+    without_fingers: dict[Finger, (speed: float, num_samples: int)])
+    for the given tristroke category.
+
+    Note that medians is the output of get_medians_for_layout()."""
+
+    all_samples = []
+    speeds_with_fingers = {finger: [] for finger in list(Finger)}
+    speeds_without_fingers = {finger: [] for finger in list(Finger)}
+
+    if category.endswith("."):
+        applicable = lambda cat: cat.startswith(category)
+    elif category.startswith("."):
+        applicable = lambda cat: cat.endswith(category)
+    elif not category:
+        applicable = lambda cat: True
+    else:
+        applicable = lambda cat: cat == category
+
+    for tristroke in medians:
+        cat = tristroke_category(tristroke)
+        if not applicable(cat):
+            continue
+        speed = medians[tristroke][2]
+        used_fingers = {finger for finger in tristroke.fingers}
+        all_samples.append(speed)
+        for finger in list(Finger):
+            if finger in used_fingers:
+                speeds_with_fingers[finger].append(speed)
+            else:
+                speeds_without_fingers[finger].append(speed)
+    
+    num_samples = len(all_samples)
+    speed = statistics.mean(all_samples) if num_samples else 0
+    with_fingers = {}
+    without_fingers = {}
+    for speeds_l, output_l in zip(
+            (speeds_with_fingers, speeds_without_fingers),
+            (with_fingers, without_fingers)):
+        for finger in list(Finger):
+            n = len(speeds_l[finger])
+            speed = statistics.mean(speeds_l[finger]) if n else 0
+            output_l[finger] = (speed, n)
+    
+    return (speed, num_samples, with_fingers, without_fingers)
+    
+
 if __name__ == "__main__":
     curses.wrapper(main)

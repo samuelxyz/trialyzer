@@ -5,6 +5,11 @@ def insert_line_bottom(text: str, window: curses.window, attr: int = ...):
     Wraps overflow onto subsequent lines.
     Does not refresh the window.
     """
+    if "\n" in text:
+        for subtext in text.split("\n"):
+            insert_line_bottom(subtext, window, attr)
+        return
+    
     ymax, xmax = window.getmaxyx()
 
     while len(text) > xmax-1:
