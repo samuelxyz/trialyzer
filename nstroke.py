@@ -2,6 +2,7 @@ from collections import namedtuple
 import itertools
 from typing import Sequence
 import operator
+from board import Coord
 
 from fingermap import Finger
 
@@ -24,7 +25,9 @@ all_bistroke_categories = [
     "roll.in.scissor",
     "roll.out",
     "roll.out.scissor",
-    "sfb"
+    "sfb",
+    "sfr",
+    "unknown"
 ]
 all_tristroke_categories = [
     "",
@@ -59,12 +62,21 @@ all_tristroke_categories = [
     "sfb.roll.in.scissor",
     "sfb.roll.out",
     "sfb.roll.out.scissor",
+    "sfr.",
+    "sfr.alt",
+    "sfr.roll.in",
+    "sfr.roll.in.scissor",
+    "sfr.roll.out",
+    "sfr.roll.out.scissor",
     "sfs.",
     "sfs.alt",
     "sfs.redirect",
     "sfs.redirect.scissor",
     "sfs.redirect.scissor.twice",
-    "sft"
+    "sfs.trill",
+    "sfs.trill.scissor.twice",
+    "sft",
+    "unknown"
 ]
 category_display_names = {
     "": "total",
@@ -76,6 +88,7 @@ category_display_names = {
     ".scissor_and_skip": "*.scissor_and_skip",
     ".scissor_skip": "*.scissor_skip",
     "sfb.": "sfb",
+    "sfr.": "sfr",
     "sfs.": "sfs"
 }
 
@@ -111,7 +124,7 @@ def compatible(a: Tristroke, b: Tristroke):
                 return False
     return True
 
-def bifinger_category(fingers: Sequence[Finger]):
+def bifinger_category(fingers: Sequence[Finger], coords: Sequence[Coord]):
     # Used by both bistroke_category() and tristroke_category()
     if Finger.UNKNOWN in fingers:
         return "unknown"
@@ -120,14 +133,15 @@ def bifinger_category(fingers: Sequence[Finger]):
 
     delta = abs(fingers[1]) - abs(fingers[0])
     if delta == 0:
-        return "sfb"
+        return "sfr" if coords[1] == coords[0] else "sfb"
     else:
         return "roll.out" if delta > 0 else "roll.in"
 
 def bistroke_category(nstroke: Nstroke, 
                       index0: int = 0, index1: int = 1):
-    category = bifinger_category((nstroke.fingers[index0],
-                                  nstroke.fingers[index1]))
+    category = bifinger_category(
+        (nstroke.fingers[index0], nstroke.fingers[index1]),
+        (nstroke.coords[index0], nstroke.coords[index1]))
     if category.startswith("roll"):
         category += detect_scissor(nstroke, index0, index1)
     return category
@@ -136,18 +150,23 @@ def tristroke_category(tristroke: Tristroke):
     if Finger.UNKNOWN in tristroke.fingers:
         return "unknown"
     first, skip, second = map(
-        bifinger_category, itertools.combinations(tristroke.fingers, 2))
-    if skip == "sfb":
-        if first == "sfb":
+        bifinger_category, 
+        itertools.combinations(tristroke.fingers, 2),
+        itertools.combinations(tristroke.coords, 2))
+    if skip in ("sfb", "sfr"):
+        if first in ("sfb", "sfr"):
             return "sft"
         if first.startswith("roll"):
-            return "sfs.redirect" + detect_scissor_roll(tristroke)
+            if skip == "sfr":
+                return "sfs.trill" + detect_scissor_roll(tristroke)
+            else:
+                return "sfs.redirect" + detect_scissor_roll(tristroke)
         else:
             return "sfs.alt" + detect_scissor_skip(tristroke)
-    elif first == "sfb":
-        return "sfb." + second + detect_scissor(tristroke, 1, 2)
-    elif second == "sfb":
-        return "sfb." + first + detect_scissor(tristroke, 0, 1)
+    elif first in ("sfb", "sfr"):
+        return first + "." + second + detect_scissor(tristroke, 1, 2)
+    elif second in ("sfb", "sfr"):
+        return second + "." + first + detect_scissor(tristroke, 0, 1)
     elif first == "alt" and second == "alt":
         return "alt" + skip[4:] + detect_scissor_skip(tristroke)
     elif first.startswith("roll"):
@@ -192,3 +211,4 @@ def detect_scissor_skip(tristroke: Tristroke):
 def detect_scissor_any(tristroke: Tristroke):
     cat = detect_scissor_roll(tristroke) + detect_scissor_skip(tristroke)
     return ".scissor_and_skip" if cat == ".scissor.scissor_skip" else cat
+    

@@ -78,12 +78,13 @@ def main(stdscr: curses.window):
 
         if counts:
             # log causes better usage of the gradient
-            log_counts = {cat: math.log(counts[cat]) for cat in counts}
-            cmin = min(log_counts.values())
+            log_counts = {cat: math.log(counts[cat]) 
+                if counts[cat] else 0 for cat in counts}
+            cmin = min(filter(None, log_counts.values()))
             cmax = max(log_counts.values())
             completion = {}
             for category in data:
-                if data[category][1] > 0:
+                if data[category][1] > 0 and counts[category]:
                     # sqrt makes smaller differences more visible
                     completion[category] = math.sqrt(
                         data[category][1]/counts[category])
@@ -94,8 +95,7 @@ def main(stdscr: curses.window):
                     min(completion.values()), max(completion.values()),
                     completion[category]))
                 c_pairs[category] = curses.color_pair(gui_util.color_scale(
-                    cmin, cmax, 
-                    log_counts[category]))
+                    cmin, cmax, log_counts[category], True))
         else:
             for category in data:
                 p_pairs[category] = curses.color_pair(0)
