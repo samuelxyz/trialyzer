@@ -1,7 +1,6 @@
 import time
 import queue
 import statistics
-
 import curses
 from typing import Iterable
 from pynput import keyboard
@@ -42,14 +41,17 @@ def test(window: curses.window, trigram: Iterable[str], active_layout: layout.La
     stats_win = window.derwin(13, width, 1, 0)
     message_win = window.derwin(13, 0)
 
+    tristroke = active_layout.to_nstroke(trigram)
+    fingers = tuple(f.name for f in tristroke.fingers)
+
     stats_win.hline(0, 0, "-", width-2)
-    stats_win.addstr(1, 0, "Bigram " + trigram[0] + " " + trigram[1])
+    stats_win.addstr(1, 0, "Bigram {} {} ({}, {})".format(*trigram[:2], *fingers[:2]))
     stats_win.addstr(2, 0, "mean / stdev / median")
     stats_win.hline(4, 0, "-", width-2)
-    stats_win.addstr(5, 0, "Bigram " + trigram[1] + " " + trigram[2])
+    stats_win.addstr(5, 0, "Bigram {} {} ({}, {})".format(*trigram[1:], *fingers[1:]))
     stats_win.addstr(6, 0, "mean / stdev / median")
     stats_win.hline(8, 0, "-", width-2)
-    stats_win.addstr(9, 0, "Trigram " + " ".join(trigram))
+    stats_win.addstr(9, 0, "Trigram " + " ".join(trigram) + " ({}, {}, {})".format(*fingers))
     stats_win.addstr(10, 0, "mean / stdev / median")
     
     def message(msg: str, color: int = 0): # mostly for brevity
