@@ -2,7 +2,7 @@
 
 An idea I had for a keyboard layout analyzer. It includes a specialized trigram typing test to allow users to measure their speed on arbitrary trigrams, and uses that data as the basis for layout analysis.
 
-![Trialyzer's typing test in action](/misc/typingtest_image_1.png)
+![Trialyzer's typing test in action](/misc/typingtest_image_2.png)
 
 I'm also using this project as an opportunity to learn Python. This is my first time using Python for anything more substantial than CodingBat, and also my first project in VS Code, so things may be somewhat messy.
 
@@ -25,6 +25,8 @@ Much discussion has been had about whether different movements are better or wor
 - Have you been suspecting that your right ring finger is faster than your left? 
 - Is QWERTY's `ve` roll tolerable until you add `x` afterward? 
 - How bad is Colemak's `you` really, compared to the average redirect? Compared to `oyu`?
+
+![Some stats shown after a bit of data collection](/misc/stats_image_1.png)
 
 Instead of taking same finger bigrams, skipgrams, rolls, and all those other stats, and combining them into an overall layout fitness using arbitrary weights, it is my hope that the trigram speed statistic will naturally incorporate the effects of all these stats into one overall layout speed score, with no arbitrary weight selection required. However, we wouldn't be giving up the granularity of all those specific stats. In fact, we would be able to obtain *more* insight into, for example, exactly how bad each different sfb is, and how much they slow you down compared to the average non-sfb.
 
