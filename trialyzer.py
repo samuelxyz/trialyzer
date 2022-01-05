@@ -2,8 +2,9 @@ import csv
 import itertools
 import operator
 import statistics
-from os import path
+import os
 import math
+import json
 
 from board import Coord
 from fingermap import Finger
@@ -16,17 +17,25 @@ import gui_util
 
 def main(stdscr: curses.window):
     
-    startup_text = [
-            "Commands:",
-            "t[ype] <trigram>: Enter typing test",
-            "l[ayout] [layout name]: Show or change active layout",
-            "s[ave] [csvname]: Save tristroke data to /data/csvname.csv",
-            "bs|bistrokes [csvname]: Show applicable bistroke stats",
-            "ts|tristrokes [csvname]: Show applicable tristroke stats",
-            "tsc [category] [csvname]: Show stats for tristroke category",
-            "q[uit]"
-    ]
+    try:
+        with open("session_settings.json") as settings_file:
+            settings = json.load(settings_file)
+        startup_layout_name = settings["active_layout_name"]
+        active_speeds_file = settings["active_speeds_file"]
+    except OSError:
+        startup_layout_name = "qwerty"
+        active_speeds_file = "default"
+
+    active_layout = layout.get_layout(startup_layout_name)
     
+    def startup_text(): 
+        return [
+            "\"h\" or \"help\" to show command list",
+            f"Active layout: {active_layout}",
+            f"Active speeds file: {active_speeds_file}"
+            f" (/data/{active_speeds_file}.csv)"
+        ]
+
     curses.curs_set(0)
     gui_util.init_colors()
 
@@ -38,21 +47,24 @@ def main(stdscr: curses.window):
     content_win = stdscr.subwin(1, 0)
 
     height, width = content_win.getmaxyx()
+    startup_lines = len(startup_text())
     message_win = content_win.derwin(
-        height-len(startup_text)-2, int(width/3), len(startup_text), 0)
+        height-startup_lines-2, int(width/3), startup_lines, 0)
     right_pane = content_win.derwin(
-        height-len(startup_text)-2, int(width*2/3), len(startup_text), 
+        height-startup_lines-2, int(width*2/3), startup_lines, 
         int(width/3))
+    for win in (message_win, right_pane):
+        win.scrollok(True)
+        win.idlok(True)
     input_win = content_win.derwin(height-2, 2)
     input_box = curses.textpad.Textbox(input_win, True)
     
-    active_layout = layout.get_layout("qwerty")
     unsaved_typingtest_data = []
 
-    def message(msg: str, color: int = 0):
+    def message(msg: str, color: int = 0, win: curses.window = message_win):
         gui_util.insert_line_bottom(
-            msg, message_win, curses.color_pair(color))
-        message_win.refresh()
+            msg, win, curses.color_pair(color))
+        win.refresh()
 
     def get_input() -> str:
         input_win.move(0,0)
@@ -66,8 +78,6 @@ def main(stdscr: curses.window):
         return res
 
     def print_stroke_categories(data: dict, counts: dict = None):
-        right_pane.scrollok(True)
-        right_pane.idlok(True)
         right_pane.scroll(len(data))
         ymax = right_pane.getmaxyx()[0]
         row = ymax - len(data)
@@ -132,18 +142,16 @@ def main(stdscr: curses.window):
             row += 1
         
         right_pane.refresh()
+    
+    def save_session_settings():
+        with open("session_settings.json", "w") as settings_file:
+            json.dump(
+                {   "active_layout_name": active_layout.name,
+                    "active_speeds_file": active_speeds_file,
+                }, settings_file)
 
-    def csv_exists(filename: str):
-        good = path.exists("data/" + filename + ".csv")
-        if not good:
-            if filename == "default":
-                message("No csv data was found.", gui_util.red) 
-            else:   
-                message("That csv was not found.", gui_util.red)
-        return good
-   
     while True:
-        content_win.addstr(0, 0, "\n".join(startup_text))
+        content_win.addstr(0, 0, "\n".join(startup_text()))
         content_win.addstr(height-2, 0, "> ")
         content_win.refresh()
 
@@ -180,26 +188,36 @@ def main(stdscr: curses.window):
             )
             message("Finished typing test", gui_util.green)
             input_win.clear()
-        elif command in ("l", "layout"):
+        elif command in ("l", "layout", "layouts"):
             layout_name = " ".join(args)
-            if layout_name:
+            if layout_name: # set layout
                 try:
                     active_layout = layout.get_layout(layout_name)
                     message("Set " + layout_name + " as the active layout.",
                             gui_util.green)
+                    save_session_settings()
                 except OSError:
-                    message("That layout was not found.", gui_util.red)
-            else:
-                message("Active layout: " + str(active_layout), gui_util.blue)
+                    message(f"/layouts/{layout_name} was not found.", 
+                            gui_util.red)
+            else: # list layouts
+                layout_file_list = []
+                with os.scandir("layouts/.") as files:
+                    for file in files:
+                        if "." not in file.name and file.is_file():
+                            layout_file_list.append(file.name)
+                if not layout_file_list:
+                    message("No layouts found in /layouts/", gui_util.blue)
+                    continue
+                message(f"{len(layout_file_list)} layouts found >>>", gui_util.green)
+                right_pane.scroll(1)
+                message("Layouts:", win = right_pane)
+                for name in layout_file_list:
+                    message(name, win = right_pane)
         elif command in ("s", "save"):
             if not unsaved_typingtest_data:
                 message("No unsaved data", gui_util.blue)
                 continue
-            if not args:
-                filename = "default"
-            else:
-                filename = " ".join(args)
-            data = load_csv_data(filename)
+            data = load_csv_data(active_speeds_file)
             for entry in unsaved_typingtest_data:
                 tristroke: Tristroke = entry[0]
                 if tristroke not in data:
@@ -207,46 +225,75 @@ def main(stdscr: curses.window):
                 data[tristroke][0].extend(entry[1][0])
                 data[tristroke][1].extend(entry[1][1])
             unsaved_typingtest_data.clear()
-            save_csv_data(data, filename)
+            save_csv_data(data, active_speeds_file)
             message("Data saved", gui_util.green)
         elif command in ("bs", "bistrokes"):
             if not args:
-                filename = "default"
+                message("Crunching the numbers >>>", gui_util.green)
+                message_win.refresh()
+                right_pane.clear()
+                data = bistroke_category_data(get_medians_for_layout(
+                    load_csv_data(active_speeds_file), active_layout))
+                print_stroke_categories(data)
             else:
-                filename = " ".join(args)
-            if not csv_exists(filename):
-                continue
-            message("Crunching the numbers >>>", gui_util.green)
-            message_win.refresh()
-            right_pane.clear()
-            data = bistroke_category_data(get_medians_for_layout(
-                load_csv_data(filename), active_layout))
-            print_stroke_categories(data)
-        elif command in ("ts", "tristrokes"):
+                message("Individual bistroke stats are"
+                    " not yet implemented", gui_util.red)
+        elif command in ("ts", "tristroke"):
             if not args:
-                filename = "default"
+                message("Crunching the numbers >>>", gui_util.green)
+                right_pane.clear()
+                data = tristroke_category_data(get_medians_for_layout(
+                    load_csv_data(active_speeds_file), active_layout))
+                header_line = (
+                    "Category                       ms    n     possible")
+                gui_util.insert_line_bottom(header_line, right_pane)
+                active_layout.preprocessors["counts"].join()
+                print_stroke_categories(data, active_layout.counts)
             else:
-                filename = " ".join(args)
-            if not csv_exists(filename):
-                continue
-            message("Crunching the numbers >>>", gui_util.green)
-            right_pane.clear()
-            data = tristroke_category_data(get_medians_for_layout(
-                load_csv_data(filename), active_layout))
-            header_line = "Category                       ms    n     possible"
-            gui_util.insert_line_bottom(header_line, right_pane)
-            active_layout.preprocessors["counts"].join()
-            print_stroke_categories(data, active_layout.counts)
+                message("Individual tristroke stats are"
+                    " not yet implemented", gui_util.red)
+        elif command == "sf":
+            if not args:
+                active_speeds_file = "default"
+            else:
+                active_speeds_file = " ".join(args)
+            message(f"Set active speeds file to {active_speeds_file}",
+                    gui_util.green)
+            if not os.path.exists("data/" + active_speeds_file + ".csv"):
+                message("The new file will be written upon save", gui_util.blue)
+            save_session_settings()
+        elif command in ("h", "help"):
+            help_text = [
+                "",
+                "Commands:",
+                "h[elp]: Show this list",
+                "t[ype] <trigram>: Enter typing test",
+                "l[ayout] [layout name]: Set active layout, or show options",
+                "sf [filename]: Set or reset active speeds file",
+                "s[ave]: Save tristroke data to active speeds file",
+                "bs [bistroke]: Show specified/all bistroke stats",
+                "ts [tristroke]: Show specified/all tristroke stats",
+                "tsc [category]: Show tristroke category/total stats",
+                "q[uit]"
+            ]
+            ymax = right_pane.getmaxyx()[0]
+            for line in help_text:
+                if ":" in line:
+                    white_part, rest = line.split(":", 1)
+                    white_part += ":"
+                    rest_pos = len(white_part)
+                    right_pane.addstr(ymax-1, 0, white_part)
+                    right_pane.addstr(ymax-1, rest_pos, rest, 
+                                      curses.color_pair(gui_util.blue))
+                else:
+                    right_pane.addstr(ymax-1, 0, line)
+                right_pane.scroll(1)
+            right_pane.refresh()
         elif command in ("tsc",):
-            filename = "default"
             if not args:
                 category_name = ""
             else:
                 category_name = args[0].lower().strip()
-                if len(args) >= 2:
-                    filename = args[1]
-            if not csv_exists(filename):
-                continue
 
             if "(" in category_name:
                 category_name = category_name[:category_name.find("(")].strip()
@@ -265,7 +312,7 @@ def main(stdscr: curses.window):
             message("Crunching the numbers >>>", gui_util.green)
             (speed, num_samples, with_fingers, without_fingers
             ) = data_for_tristroke_category(category, get_medians_for_layout(
-                load_csv_data(filename), active_layout
+                load_csv_data(active_speeds_file), active_layout
             ))
             display_name = (category_display_names[category] 
                 if category in category_display_names else category)
@@ -339,6 +386,7 @@ def main(stdscr: curses.window):
         elif command == "gradient":
             for i, color in enumerate(gui_util.gradient_colors):
                 message("Gradient level {}".format(i), color)
+        
         else:
             message("Unrecognized command", gui_util.red)            
 
@@ -359,7 +407,7 @@ def load_csv_data(filename: str):
     """
 
     data = {}
-    if not path.exists("data/" + filename + ".csv"):
+    if not os.path.exists("data/" + filename + ".csv"):
         return data
 
     with open("data/" + filename + ".csv", "r", newline="") as csvfile:

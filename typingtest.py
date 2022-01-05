@@ -98,7 +98,7 @@ def test(window: curses.window, trigram: Iterable[str], active_layout: layout.La
 
             if key_name != trigram[next_index]:
                 if key_name == "esc":
-                    message("Finishing test", gui_util.green)
+                    message("Finishing test\nRemember to save! :)", gui_util.green)
                 elif key_name in trigram:
                     message("Key " + key_name + 
                                 " out of sequence, trigram invalidated",

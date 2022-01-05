@@ -2,3 +2,4 @@
 /__pycache__
 /.vscode
 /data/*.csv
+session_settings.json

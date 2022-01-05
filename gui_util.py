@@ -54,10 +54,8 @@ def insert_line_bottom(text: str, window: curses.window, attr: int = ...):
         text = text[xmax-1:]
         insert_line_bottom(first_line, window, attr)
 
-    # window.move(0,0)
-    # window.deleteln()
-    window.scrollok(True)
-    window.idlok(True)
+    # window.scrollok(True)
+    # window.idlok(True)
     window.scroll(1)
 
     if attr != ...:
