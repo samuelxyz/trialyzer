@@ -86,6 +86,7 @@ def main(stdscr: curses.window):
         s_pairs = {} # speeds
         c_pairs = {} # total count
 
+        # setup & calcs
         if counts:
             # log causes better usage of the gradient
             log_counts = {cat: math.log(counts[cat]) 
@@ -116,6 +117,7 @@ def main(stdscr: curses.window):
                 min(val[0] for val in data.values()), 
                 data[category][0]))
         
+        # printing
         for category in sorted(data):
             category_name = (category_display_names[category] 
                 if category in category_display_names else category)
@@ -227,6 +229,108 @@ def main(stdscr: curses.window):
             unsaved_typingtest_data.clear()
             save_csv_data(data, active_speeds_file)
             message("Data saved", gui_util.green)
+        elif command in ("a", "analyze"):
+            if args:
+                layout_name = " ".join(args)
+                try:
+                    target_layout = layout.get_layout(layout_name)
+                except OSError:
+                    message(f"/layouts/{layout_name} was not found.", 
+                            gui_util.red)
+                    continue
+            else:
+                target_layout = active_layout
+            message("Crunching the numbers >>>", gui_util.green)
+            message_win.refresh()
+            
+            medians = get_medians_for_layout(
+                load_csv_data(active_speeds_file), target_layout)
+            stats = analyze_layout(target_layout, 
+                                   tristroke_category_data(medians), medians)
+            
+            # color calcs
+            pairs = [dict() for i in range(4)]
+            wb = [None for i in range(4)]
+            for i in (0,):
+                wb[i] = (
+                    math.sqrt(min(val[i] for val in stats.values())),
+                    math.sqrt(max(stats[cat][i] for cat in stats if cat))
+                )
+                for category in stats:
+                    pairs[i][category] = curses.color_pair(gui_util.color_scale(
+                        *wb[i], math.sqrt(stats[category][i]), True
+                    ))
+            for i in (1,):
+                wb[i] = (
+                    math.sqrt(min(val[i] for val in stats.values())),
+                    math.sqrt(max(val[i] for val in stats.values()))
+                )
+                for category in stats:
+                    pairs[i][category] = curses.color_pair(gui_util.color_scale(
+                        *wb[i], math.sqrt(stats[category][i]), True
+                    ))
+            for i in (2,):
+                wb[i] = (
+                    max(val[i] for val in stats.values()),
+                    min(val[i] for val in stats.values())
+                )
+                for category in stats:
+                    pairs[i][category] = curses.color_pair(gui_util.color_scale(
+                        *wb[i], stats[category][i], True
+                    ))
+            for i in (3,):
+                wb[i] = (
+                    math.sqrt(max(stats[cat][i] for cat in stats if cat)),
+                    math.sqrt(min(val[i] for val in stats.values()))
+                )
+                for category in stats:
+                    pairs[i][category] = curses.color_pair(gui_util.color_scale(
+                        *wb[i], math.sqrt(stats[category][i]), True
+                    ))
+            ms = stats[""][2]
+            wpm = int(24000/ms)
+
+            # printing
+            gui_util.insert_line_bottom(f"\nLayout: {target_layout}", right_pane)
+            gui_util.insert_line_bottom(
+                f"Overall {ms:.1f} ms per trigram ({wpm} wpm)\n", right_pane)
+            header_line = (
+                    "Category                     freq  exactness avg_ms  tot_ms")
+            gui_util.insert_line_bottom(header_line, right_pane)
+            right_pane.scroll(len(stats))
+            ymax = right_pane.getmaxyx()[0]
+            row = ymax - len(stats)
+
+            for category in sorted(stats):
+                category_name = (category_display_names[category] 
+                    if category in category_display_names else category)
+                pad_char = " "
+                if category.endswith(".") or not category:
+                    category_name += " (total) "
+                    pad_char = "-"
+                if not category.startswith("."):
+                    if "." not in category_name:
+                        pad_char = "-"
+                        category_name += " "
+                right_pane.addstr( # category name
+                    row, 0, ("{:" + pad_char + "<26}").format(category_name))
+                right_pane.addstr( # freq
+                    row, 27, f"{stats[category][0]:>6.2%}",
+                    pairs[0][category])
+                right_pane.addstr( # known_freq
+                    row, 36, f"{stats[category][1]:>6.2%}",
+                    pairs[1][category])
+                right_pane.addstr( # speed
+                    row, 45, f"{stats[category][2]:>6.1f}",
+                    pairs[2][category])
+                right_pane.addstr( # contrib
+                    row, 53, f"{stats[category][3]:>6.2f}",
+                    pairs[3][category])
+                row += 1
+            
+            right_pane.refresh()
+        elif command in ("r", "rank"):
+            message("Layout ranking is not yet implemented", gui_util.red)
         elif command in ("bs", "bistrokes"):
             if not args:
                 message("Crunching the numbers >>>", gui_util.green)
@@ -265,12 +369,15 @@ def main(stdscr: curses.window):
         elif command in ("h", "help"):
             help_text = [
                 "",
+                "",
                 "Commands:",
                 "h[elp]: Show this list",
                 "t[ype] <trigram>: Enter typing test",
                 "l[ayout] [layout name]: Set active layout, or show options",
                 "sf [filename]: Set or reset active speeds file",
                 "s[ave]: Save tristroke data to active speeds file",
+                "a[nalyze] [layout name]: Detailed layout analysis",
+                "r[ank]: Rank all layouts",
                 "bs [bistroke]: Show specified/all bistroke stats",
                 "ts [tristroke]: Show specified/all tristroke stats",
                 "tsc [category]: Show tristroke category/total stats",
@@ -685,6 +792,91 @@ def data_for_tristroke_category(category: str, medians: dict):
             output_l[finger] = (speed, n)
     
     return (speed, num_samples, with_fingers, without_fingers)
+
+def analyze_layout(layout: layout.Layout, tricatdata: dict, medians: dict):
+    """Returns dict[category, (freq_prop, known_prop, speed, contribution)]
+    
+    tricatdata is the output of tristroke_category_data(). That is,
+    dict[category: string, (speed: float, num_samples: int)]
+    
+    medians is the output of get_medians_for_layout(). That is, 
+    dict[Tristroke, (float, float, float)]"""
+    with open("data/shai.json") as file:
+        corpus = json.load(file)
+
+    trigram_freqs = corpus["trigrams"]
+    # {category: [total_time, exact_freq, total_freq]}
+    by_category = {category: [0,0,0] for category in all_tristroke_categories}
+    for trigram in trigram_freqs:
+        try:
+            tristroke = layout.to_nstroke(trigram)
+        except KeyError: # contains key not in layout
+            continue
+        cat = tristroke_category(tristroke)
+        freq = trigram_freqs[trigram]
+        try:
+            speed = medians[tristroke][2]
+            by_category[cat][1] += freq
+        except KeyError: # no entry in known medians
+            speed = tricatdata[cat][0]
+        finally:
+            by_category[cat][0] += speed * freq
+            by_category[cat][2] += freq
+    
+    # fill in sum categories
+    for cat in all_tristroke_categories:
+        if not by_category[cat][2]:
+            applicable = applicable_function(cat)
+            for othercat in all_tristroke_categories:
+                if by_category[othercat][2] and applicable(othercat):
+                    for i in range(3):
+                        by_category[cat][i] += by_category[othercat][i]
+
+    total_freq = by_category[""][2]
+    if not total_freq:
+        total_freq = 1
+    stats = {}
+    for cat in all_tristroke_categories:
+        cat_freq = by_category[cat][2]
+        if not cat_freq:
+            cat_freq = 1
+        freq_prop = by_category[cat][2] / total_freq
+        known_prop = by_category[cat][1] / cat_freq
+        cat_speed = by_category[cat][0] / cat_freq
+        contribution = by_category[cat][0] / total_freq
+        stats[cat] = (freq_prop, known_prop, cat_speed, contribution)
+    
+    return stats
+
+def analyze_layout_nodetail(layout: layout.Layout, 
+                            tricatdata: dict, medians: dict):
+    """Like analyze_layout but instead of breaking down by category, only
+    calculates stats for the "total" category.
+    
+    Returns (speed, known_prop)"""
+    with open("/data/shai.json") as file:
+        corpus = json.load(file)
+
+    trigram_freqs = corpus["trigrams"]
+    total_freq = 0
+    known_freq = 0
+    total_time = 0
+    for trigram in trigram_freqs:
+        try:
+            tristroke = layout.to_nstroke(trigram)
+        except KeyError: # contains key not in layout
+            continue
+        freq = trigram_freqs[trigram]
+        try:
+            speed = medians[tristroke][2]
+            known_freq += freq
+        except KeyError: # no entry in known medians
+            speed = tricatdata[tristroke_category(tristroke)][0]
+        finally:
+            total_time += speed
+            total_freq += freq
+
+    return (total_time/total_freq, known_freq/total_freq)
     
 if __name__ == "__main__":
     curses.wrapper(main)

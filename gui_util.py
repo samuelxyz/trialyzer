@@ -32,7 +32,9 @@ def color_scale(worst, best, target, exclude_zeros = False):
     """Make sure to run the result through curses.color_pair()."""
     if exclude_zeros and not target: return gray
     fraction = (target-worst) / (best-worst)
-    if fraction >= 1.0:
+    if fraction < 0:
+        fraction = 0
+    elif fraction >= 1.0:
         fraction = 0.999
     i = int(len(gradient_colors)*fraction)
     return gradient_colors[i]
