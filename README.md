@@ -12,7 +12,8 @@ Uses Python packages:
 
 Usage:
 - Once you have the above packages installed in your environment, run `trialyzer.py`.
-- I'll probably get around to a requirements.txt eventually maybe possibly.
+    - I'll probably get around to a requirements.txt eventually maybe possibly.
+- Trialyzer requires a pretty big console window for certain features. If you get a curses error, you may have to increase your window size and/or decrease font size.
 
 ## Motivation
 
@@ -32,8 +33,8 @@ Instead of taking same finger bigrams, skipgrams, rolls, and all those other sta
 
 Here is an example of the kinds of insight trialyzer might be able to provide (with fictitious numbers):
 
-- For layout A, the average keystroke time is 25.81 ms, giving a theoretical speed cap of 465 wpm. Of that average keystroke time, 4.08 ms (15.8%) is from redirects, which occur with a frequency of 6.89%.
-- For layout B, the average keystroke time is 27.65 ms, giving a theoretical speed cap of 434 wpm. Of that average keystroke time, 3.51 ms (12.7%) is from redirects, which occur with a frequency of 7.03%.
+- For layout A, the average keystroke time is 51.62 ms, giving a theoretical speed cap of 465 wpm. Of that average keystroke time, 8.16 ms (15.8%) is from redirects, which occur with a frequency of 6.89%.
+- For layout B, the average keystroke time is 55.30 ms, giving a theoretical speed cap of 434 wpm. Of that average keystroke time, 7.02 ms (12.7%) is from redirects, which occur with a frequency of 7.03%.
 - Therefore, we can say that layout B has more redirects than layout A, but those redirects aren't as bad. Perhaps we could break down the stats further to discover that layout A has redirects concentrated in the ring and pinky fingers, while layout B has redirects concentrated in the index and middle fingers. Or maybe one layout has redirects that jump between rows, and the other doesn't.
 
 Of course, this approach comes with some limitations and drawbacks. 
@@ -42,7 +43,7 @@ Of course, this approach comes with some limitations and drawbacks.
     - For example, you might be able to type a lateral stretch bigram quickly, but that doesn't mean it's comfortable. 
     - Or, how does the workload of each finger weigh in? Fatigue may be reflected in a longer test, or your finger may be slowly strained to unhealthy levels over the course of weeks, but certainly not when typing one trigram at a time.
 - Considering just the main 30 keys of the keyboard, the number of possible trigrams is 27,000 - a very tedious number to sit through and test out one at a time, not even considering the number row, thumbs, and modifiers! 
-    - To help mitigate this, trialyzer will be able to analyze layouts even with incomplete trigram speed data (by extrapolating from what data it does have), so you won't be forced to test through every single trigram before getting any use out of it. Notably, as development progresses and we start measuring real data, it may turn out that only same-hand n-grams really show variation, while all alternating bigrams have roughly the same speed. Or maybe you could mirror the trigrams of one hand to get a good approximation of the other hand's speeds. I don't know, I haven't seen that data yet! 
+    - To help mitigate this, trialyzer is able to analyze layouts even with incomplete trigram speed data (by extrapolating from what data it does have), so you won't be forced to test through every single trigram before getting any use out of it. This effect is shown as an "exactness" score that is displayed for certain stats.
     - Of course, extrapolation is never as good as actual complete data, so the more you test, the better the results will be. 
 
 ## Terminology
@@ -63,3 +64,62 @@ Existing terminology meaning a sequence of characters or key names. These may be
 A sequence of physical key locations on the board, each associated with the finger used for that key. Trialyzer collects data on the typing speeds of different tristrokes using its built-in typing test, then applies it to analyze a selected layout by associating those tristrokes with text trigrams.
 
 (Note: Different fingermap-board combinations may have some tristrokes in common; for instance, all tristrokes involving the top and home row are identical between `traditional`-`ansi` and `angle_iso`-`iso`. Moreover, though the right hand is in a different position in `angle_iso`-`iso` versus `angle_wide_iso`-`iso`, the shape of each tristroke on the right hand is identical. Trialyzer will detect these commonalities, and allow the relevant typing speed data to be shared between different boards.)
+
+## Nstroke categories
+
+### Subcategories
+
+These subcategories are ways to further distinguish the major categories in the next sections.
+
+**inward, outward**  
+This is based on the *fingers* used for a series of keys. **Inward** means a finger closer to the pinky is used earlier, and a finger closer to the thumb is used later. **Outward** means the opposite. (Think of where the keys are located on the physical board.)
+
+**skipgram/skipstroke**  
+This refers to the bigram/bistroke formed by the first and third keys in a trigram/tristroke.
+
+**scissor**  
+This is when neighboring fingers are used to strike keys that are a distance of at least 2 apart on the board (Euclidean distance). Nstrokes with scissors tend to be slower and less comfortable than non-scissors.
+- **In tristrokes,** scissors may occur between the first and second keypresses, or between the second and third. If both occur, the tristroke is categorized as `scissor.twice`. A scissor may also occur in the skipstroke, as with `b` and `e` in qwerty's `bae`, in which case the tristroke is categorized as `scissor_skip`. Finally, there is `scissor_and_skip`, which indicates that both a regular scissor and a `scissor.skip` are present.
+
+### Bistroke categories
+
+**alt**  
+A bistroke using both hands.
+
+**roll**  
+A bistroke using one hand.
+
+**sfr (same finger repeat)**  
+A bistroke where the same finger is used twice to strike the same key.
+
+**sfb (same finger bigram)**  
+A bistroke where the same finger is used twice to strike different keys.
+
+### Tristroke categories
+
+**alt**  
+A tristroke where you switch hands twice. Another way to think about it is that the first and third keys are struck with one hand, while the escond key is struck with the other hand. Must not use the same finger more than once.
+
+**roll**  
+A tristroke where you switch hands once. Another way to think about it is that the first and third keys are struck with different hands. Must not use the same finger more than once.
+
+**onehand**  
+A tristroke typed entirely with the same hand, and which is entirely inward or entirely outward. Must not use the same finger more than once.
+
+**redirect**  
+A tristroke typed entirely with the same hand, and which is a mix of inward and outward. Must not use the same finger more than once.
+
+**sft (same finger trigram)**
+A tristroke that uses the same finger for all three keys.
+
+**sfr (same finger repeat)**  
+A tristroke that uses the same finger twice in a row to strike the same key. Must not be an **sft**.  
+- Subcategories of **sfr** are based on what happens with the remaining key - if there is a hand change, it is **sfr.alt**; if not, it is **sfr.roll**.
+
+**sfb (same finger bigram)**  
+A tristroke that uses the same finger twice in a row to strike different keys. Must not be an **sft**. 
+- Subcategories of **sfb** are based on what happens with the remaining key - if there is a hand change, it is **sfb.alt**; if not, it is **sfb.roll**.
+
+**sfs (same finger skipgram)**
+A tristroke that uses the same finger for the first and third keys. Must not be an **sft**. 
+- Subcategories of **sfs** are based on what happens with the middle key - if it is on the other hand, the subcategory is **sfs.alt**; if it is on the same hand, the tristroke is **sfs.trill** if the first and third key are the same, and **sfs.redirect** if not.

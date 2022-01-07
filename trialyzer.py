@@ -295,7 +295,7 @@ def main(stdscr: curses.window):
             gui_util.insert_line_bottom(
                 f"Overall {ms:.1f} ms per trigram ({wpm} wpm)\n", right_pane)
             header_line = (
-                    "Category                     freq  exactness avg_ms  tot_ms")
+                    "Category                     freq    exact   avg_ms      ms")
             gui_util.insert_line_bottom(header_line, right_pane)
             right_pane.scroll(len(stats))
             ymax = right_pane.getmaxyx()[0]
@@ -370,7 +370,8 @@ def main(stdscr: curses.window):
             help_text = [
                 "",
                 "",
-                "Commands:",
+                "Command <required thing> [optional thing]",
+                "-----------------------------------------",
                 "h[elp]: Show this list",
                 "t[ype] <trigram>: Enter typing test",
                 "l[ayout] [layout name]: Set active layout, or show options",
