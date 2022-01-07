@@ -79,7 +79,7 @@ This refers to the bigram/bistroke formed by the first and third keys in a trigr
 
 **scissor**  
 This is when neighboring fingers are used to strike keys that are a distance of at least 2 apart on the board (Euclidean distance). Nstrokes with scissors tend to be slower and less comfortable than non-scissors.
-- **In tristrokes,** scissors may occur between the first and second keypresses, or between the second and third. If both occur, the tristroke is categorized as `scissor.twice`. A scissor may also occur in the skipstroke, as with `b` and `e` in qwerty's `bae`, in which case the tristroke is categorized as `scissor_skip`. Finally, there is `scissor_and_skip`, which indicates that both a regular scissor and a `scissor.skip` are present.
+- **In tristrokes,** scissors may occur between the first and second keypresses, or between the second and third. If both occur, the tristroke is categorized as `scissor.twice`. A scissor may also occur in the skipstroke, as with `b` and `e` in qwerty's `bae`, in which case the tristroke is categorized as `scissor_skip`. Finally, there is `scissor_and_skip`, which indicates that both a regular scissor and a `scissor_skip` are present.
 
 ### Bistroke categories
 
@@ -98,7 +98,7 @@ A bistroke where the same finger is used twice to strike different keys.
 ### Tristroke categories
 
 **alt**  
-A tristroke where you switch hands twice. Another way to think about it is that the first and third keys are struck with one hand, while the escond key is struck with the other hand. Must not use the same finger more than once.
+A tristroke where you switch hands twice. Another way to think about it is that the first and third keys are struck with one hand, while the second key is struck with the other hand. Must not use the same finger more than once.
 
 **roll**  
 A tristroke where you switch hands once. Another way to think about it is that the first and third keys are struck with different hands. Must not use the same finger more than once.
@@ -109,7 +109,7 @@ A tristroke typed entirely with the same hand, and which is entirely inward or e
 **redirect**  
 A tristroke typed entirely with the same hand, and which is a mix of inward and outward. Must not use the same finger more than once.
 
-**sft (same finger trigram)**
+**sft (same finger trigram)**  
 A tristroke that uses the same finger for all three keys.
 
 **sfr (same finger repeat)**  
@@ -120,6 +120,6 @@ A tristroke that uses the same finger twice in a row to strike the same key. Mus
 A tristroke that uses the same finger twice in a row to strike different keys. Must not be an **sft**. 
 - Subcategories of **sfb** are based on what happens with the remaining key - if there is a hand change, it is **sfb.alt**; if not, it is **sfb.roll**.
 
-**sfs (same finger skipgram)**
+**sfs (same finger skipgram)**  
 A tristroke that uses the same finger for the first and third keys. Must not be an **sft**. 
 - Subcategories of **sfs** are based on what happens with the middle key - if it is on the other hand, the subcategory is **sfs.alt**; if it is on the same hand, the tristroke is **sfs.trill** if the first and third key are the same, and **sfs.redirect** if not.
