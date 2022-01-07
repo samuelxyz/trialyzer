@@ -79,7 +79,7 @@ This refers to the bigram/bistroke formed by the first and third keys in a trigr
 
 **scissor**  
 This is when neighboring fingers are used to strike keys that are a distance of at least 2 apart on the board (Euclidean distance). Nstrokes with scissors tend to be slower and less comfortable than non-scissors.
-- **In tristrokes,** scissors may occur between the first and second keypresses, or between the second and third. If both occur, the tristroke is categorized as `scissor.twice`. A scissor may also occur in the skipstroke, as with `b` and `e` in qwerty's `bae`, in which case the tristroke is categorized as `scissor_skip`. Finally, there is `scissor_and_skip`, which indicates that both a regular scissor and a `scissor.skip` are present.
+- **In tristrokes,** scissors may occur between the first and second keypresses, or between the second and third. If both occur, the tristroke is categorized as `scissor.twice`. A scissor may also occur in the skipstroke, as with `b` and `e` in qwerty's `bae`, in which case the tristroke is categorized as `scissor_skip`. Finally, there is `scissor_and_skip`, which indicates that both a regular scissor and a `scissor_skip` are present.
 
 ### Bistroke categories
 
