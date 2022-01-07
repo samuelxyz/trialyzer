@@ -98,7 +98,7 @@ A bistroke where the same finger is used twice to strike different keys.
 ### Tristroke categories
 
 **alt**  
-A tristroke where you switch hands twice. Another way to think about it is that the first and third keys are struck with one hand, while the escond key is struck with the other hand. Must not use the same finger more than once.
+A tristroke where you switch hands twice. Another way to think about it is that the first and third keys are struck with one hand, while the second key is struck with the other hand. Must not use the same finger more than once.
 
 **roll**  
 A tristroke where you switch hands once. Another way to think about it is that the first and third keys are struck with different hands. Must not use the same finger more than once.
@@ -109,7 +109,7 @@ A tristroke typed entirely with the same hand, and which is entirely inward or e
 **redirect**  
 A tristroke typed entirely with the same hand, and which is a mix of inward and outward. Must not use the same finger more than once.
 
-**sft (same finger trigram)**
+**sft (same finger trigram)**  
 A tristroke that uses the same finger for all three keys.
 
 **sfr (same finger repeat)**  
@@ -120,6 +120,6 @@ A tristroke that uses the same finger twice in a row to strike the same key. Mus
 A tristroke that uses the same finger twice in a row to strike different keys. Must not be an **sft**. 
 - Subcategories of **sfb** are based on what happens with the remaining key - if there is a hand change, it is **sfb.alt**; if not, it is **sfb.roll**.
 
-**sfs (same finger skipgram)**
+**sfs (same finger skipgram)**  
 A tristroke that uses the same finger for the first and third keys. Must not be an **sft**. 
 - Subcategories of **sfs** are based on what happens with the middle key - if it is on the other hand, the subcategory is **sfs.alt**; if it is on the same hand, the tristroke is **sfs.trill** if the first and third key are the same, and **sfs.redirect** if not.
