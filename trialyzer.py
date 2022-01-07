@@ -144,6 +144,81 @@ def main(stdscr: curses.window):
             row += 1
         
         right_pane.refresh()
+
+    def print_analysis_stats(stats: dict, header_line: str):
+        # color calcs
+        pairs = [dict() for _ in range(4)]
+        wb = [None for _ in range(4)]
+        for i in (0,):
+            wb[i] = (
+                math.sqrt(min(val[i] for val in stats.values())),
+                math.sqrt(max(stats[cat][i] for cat in stats if cat))
+            )
+            for category in stats:
+                pairs[i][category] = curses.color_pair(gui_util.color_scale(
+                    *wb[i], math.sqrt(stats[category][i]), True
+                ))
+        for i in (1,):
+            wb[i] = (
+                math.sqrt(min(val[i] for val in stats.values())),
+                math.sqrt(max(val[i] for val in stats.values()))
+            )
+            for category in stats:
+                pairs[i][category] = curses.color_pair(gui_util.color_scale(
+                    *wb[i], math.sqrt(stats[category][i]), True
+                ))
+        for i in (2,):
+            wb[i] = (
+                max(val[i] for val in stats.values()),
+                min(val[i] for val in stats.values())
+            )
+            for category in stats:
+                pairs[i][category] = curses.color_pair(gui_util.color_scale(
+                    *wb[i], stats[category][i], True
+                ))
+        for i in (3,):
+            wb[i] = (
+                math.sqrt(max(stats[cat][i] for cat in stats if cat)),
+                math.sqrt(min(val[i] for val in stats.values()))
+            )
+            for category in stats:
+                pairs[i][category] = curses.color_pair(gui_util.color_scale(
+                    *wb[i], math.sqrt(stats[category][i]), True
+                ))
+
+        gui_util.insert_line_bottom(header_line, right_pane)
+        right_pane.scroll(len(stats))
+        ymax = right_pane.getmaxyx()[0]
+        row = ymax - len(stats)
+
+        for category in sorted(stats):
+            category_name = (category_display_names[category] 
+                if category in category_display_names else category)
+            pad_char = " "
+            if category.endswith(".") or not category:
+                category_name += " (total) "
+                pad_char = "-"
+            if not category.startswith("."):
+                if "." not in category_name:
+                    pad_char = "-"
+                    category_name += " "
+            right_pane.addstr( # category name
+                row, 0, ("{:" + pad_char + "<26}").format(category_name))
+            right_pane.addstr( # freq
+                row, 27, f"{stats[category][0]:>6.2%}",
+                pairs[0][category])
+            right_pane.addstr( # known_freq
+                row, 36, f"{stats[category][1]:>6.2%}",
+                pairs[1][category])
+            right_pane.addstr( # speed
+                row, 45, f"{stats[category][2]:>6.1f}",
+                pairs[2][category])
+            right_pane.addstr( # contrib
+                row, 53, f"{stats[category][3]:>6.2f}",
+                pairs[3][category])
+            row += 1
+        
+        right_pane.refresh()
     
     def save_session_settings():
         with open("session_settings.json", "w") as settings_file:
@@ -245,90 +320,29 @@ def main(stdscr: curses.window):
             
             medians = get_medians_for_layout(
                 load_csv_data(active_speeds_file), target_layout)
-            stats = analyze_layout(target_layout, 
-                                   tristroke_category_data(medians), medians)
+            tri_stats = tristroke_analysis(
+                target_layout, tristroke_category_data(medians), medians)
+            bi_stats = bistroke_analysis(
+                target_layout, bistroke_category_data(medians), medians)
             
-            # color calcs
-            pairs = [dict() for i in range(4)]
-            wb = [None for i in range(4)]
-            for i in (0,):
-                wb[i] = (
-                    math.sqrt(min(val[i] for val in stats.values())),
-                    math.sqrt(max(stats[cat][i] for cat in stats if cat))
-                )
-                for category in stats:
-                    pairs[i][category] = curses.color_pair(gui_util.color_scale(
-                        *wb[i], math.sqrt(stats[category][i]), True
-                    ))
-            for i in (1,):
-                wb[i] = (
-                    math.sqrt(min(val[i] for val in stats.values())),
-                    math.sqrt(max(val[i] for val in stats.values()))
-                )
-                for category in stats:
-                    pairs[i][category] = curses.color_pair(gui_util.color_scale(
-                        *wb[i], math.sqrt(stats[category][i]), True
-                    ))
-            for i in (2,):
-                wb[i] = (
-                    max(val[i] for val in stats.values()),
-                    min(val[i] for val in stats.values())
-                )
-                for category in stats:
-                    pairs[i][category] = curses.color_pair(gui_util.color_scale(
-                        *wb[i], stats[category][i], True
-                    ))
-            for i in (3,):
-                wb[i] = (
-                    math.sqrt(max(stats[cat][i] for cat in stats if cat)),
-                    math.sqrt(min(val[i] for val in stats.values()))
-                )
-                for category in stats:
-                    pairs[i][category] = curses.color_pair(gui_util.color_scale(
-                        *wb[i], math.sqrt(stats[category][i]), True
-                    ))
-            ms = stats[""][2]
-            wpm = int(24000/ms)
+            tri_ms = tri_stats[""][2]
+            tri_wpm = int(24000/tri_ms)
+            bi_ms = bi_stats[""][2]
+            bi_wpm = int(12000/bi_ms)
 
-            # printing
             gui_util.insert_line_bottom(f"\nLayout: {target_layout}", right_pane)
             gui_util.insert_line_bottom(
-                f"Overall {ms:.1f} ms per trigram ({wpm} wpm)\n", right_pane)
-            header_line = (
-                    "Category                     freq    exact   avg_ms      ms")
-            gui_util.insert_line_bottom(header_line, right_pane)
-            right_pane.scroll(len(stats))
-            ymax = right_pane.getmaxyx()[0]
-            row = ymax - len(stats)
-
-            for category in sorted(stats):
-                category_name = (category_display_names[category] 
-                    if category in category_display_names else category)
-                pad_char = " "
-                if category.endswith(".") or not category:
-                    category_name += " (total) "
-                    pad_char = "-"
-                if not category.startswith("."):
-                    if "." not in category_name:
-                        pad_char = "-"
-                        category_name += " "
-                right_pane.addstr( # category name
-                    row, 0, ("{:" + pad_char + "<26}").format(category_name))
-                right_pane.addstr( # freq
-                    row, 27, f"{stats[category][0]:>6.2%}",
-                    pairs[0][category])
-                right_pane.addstr( # known_freq
-                    row, 36, f"{stats[category][1]:>6.2%}",
-                    pairs[1][category])
-                right_pane.addstr( # speed
-                    row, 45, f"{stats[category][2]:>6.1f}",
-                    pairs[2][category])
-                right_pane.addstr( # contrib
-                    row, 53, f"{stats[category][3]:>6.2f}",
-                    pairs[3][category])
-                row += 1
+                f"Overall {tri_ms:.1f} ms per trigram ({tri_wpm} wpm)", right_pane)
+            gui_util.insert_line_bottom(
+                f"Overall {bi_ms:.1f} ms per bigram ({bi_wpm} wpm)", right_pane)
             
-            right_pane.refresh()
+            tri_header_line = (
+                "\nTristroke categories         freq    exact   avg_ms      ms")
+            bi_header_line = (
+                "\nBistroke categories          freq    exact   avg_ms      ms")
+            print_analysis_stats(tri_stats, tri_header_line)
+            print_analysis_stats(bi_stats, bi_header_line)
+            
         elif command in ("r", "rank"):
             message("Layout ranking is not yet implemented", gui_util.red)
         elif command in ("bs", "bistrokes"):
@@ -619,7 +633,10 @@ def bistroke_category_data(medians: dict):
     all_medians = {} # dict[category, list[median]]
     is_estimate = {} # dict[category, bool]
     
-    for category in all_bistroke_categories: # sorted general -> specific
+    all_categories = all_bistroke_categories.copy()
+
+
+    for category in all_categories: # sorted general -> specific
         if category in known_medians:
             all_medians[category] = known_medians[category]
             is_estimate[category] = False
@@ -640,10 +657,10 @@ def bistroke_category_data(medians: dict):
             if tristroke_category(tristroke).startswith("sfs"):
                 all_medians["sfb"].append(medians[tristroke][2])
     
-    all_bistroke_categories.reverse() # most specific first
-    for category in all_bistroke_categories:
+    all_categories.reverse() # most specific first
+    for category in all_categories:
         if not all_medians[category]: # data needed
-            for supercategory in all_bistroke_categories: # most specific first
+            for supercategory in all_categories: # most specific first
                 if (category.startswith(supercategory) and 
                         bool(all_medians[supercategory])):
                     all_medians[category] = all_medians[supercategory]
@@ -794,7 +811,81 @@ def data_for_tristroke_category(category: str, medians: dict):
     
     return (speed, num_samples, with_fingers, without_fingers)
 
-def analyze_layout(layout: layout.Layout, tricatdata: dict, medians: dict):
+def bistroke_analysis(layout: layout.Layout, bicatdata: dict, medians: dict):
+    """Returns dict[category, (freq_prop, known_prop, speed, contribution)]
+    
+    bicatdata is the output of bistroke_category_data(). That is,
+    dict[category: string, (speed: float, num_samples: int)]
+    
+    medians is the output of get_medians_for_layout(). That is, 
+    dict[Tristroke, (float, float, float)]"""
+    with open("data/shai.json") as file:
+        corpus = json.load(file)
+
+    # break medians down from tristrokes to bistrokes
+    bi_medians = {}
+    for tristroke in medians:
+        bi0 = (
+            Nstroke(
+                tristroke.note, tristroke.fingers[:2], tristroke.coords[:2]),
+            medians[tristroke][0])
+        bi1 = (
+            Nstroke(
+                tristroke.note, tristroke.fingers[1:], tristroke.coords[1:]),
+            medians[tristroke][1])
+        for bi_tuple in (bi0, bi1):
+            try:
+                bi_medians[bi_tuple[0]].append(bi_tuple[1])
+            except KeyError:
+                bi_medians[bi_tuple[0]] = [bi_tuple[1]]
+    for bistroke in bi_medians:
+        bi_medians[bistroke] = statistics.mean(bi_medians[bistroke])
+    
+    bigram_freqs = corpus["bigrams"]
+    # {category: [total_time, exact_freq, total_freq]}
+    by_category = {category: [0,0,0] for category in all_bistroke_categories}
+    for bigram in bigram_freqs:
+        try:
+            bistroke = layout.to_nstroke(bigram)
+        except KeyError: # contains key not in layout
+            continue
+        cat = bistroke_category(bistroke)
+        freq = bigram_freqs[bigram]
+        try:
+            speed = bi_medians[bistroke]
+            by_category[cat][1] += freq
+        except KeyError: # no entry in known medians
+            speed = bicatdata[cat][0]
+        finally:
+            by_category[cat][0] += speed * freq
+            by_category[cat][2] += freq
+    
+    # fill in sum categories
+    for cat in all_bistroke_categories:
+        if not by_category[cat][2]:
+            applicable = applicable_function(cat)
+            for othercat in all_bistroke_categories:
+                if by_category[othercat][2] and applicable(othercat):
+                    for i in range(3):
+                        by_category[cat][i] += by_category[othercat][i]
+
+    total_freq = by_category[""][2]
+    if not total_freq:
+        total_freq = 1
+    stats = {}
+    for cat in all_bistroke_categories:
+        cat_freq = by_category[cat][2]
+        if not cat_freq:
+            cat_freq = 1
+        freq_prop = by_category[cat][2] / total_freq
+        known_prop = by_category[cat][1] / cat_freq
+        cat_speed = by_category[cat][0] / cat_freq
+        contribution = by_category[cat][0] / total_freq
+        stats[cat] = (freq_prop, known_prop, cat_speed, contribution)
+    
+    return stats
+
+def tristroke_analysis(layout: layout.Layout, tricatdata: dict, medians: dict):
     """Returns dict[category, (freq_prop, known_prop, speed, contribution)]
     
     tricatdata is the output of tristroke_category_data(). That is,
@@ -849,9 +940,9 @@ def analyze_layout(layout: layout.Layout, tricatdata: dict, medians: dict):
     
     return stats
 
-def analyze_layout_nodetail(layout: layout.Layout, 
+def summary_tristroke_analysis(layout: layout.Layout, 
                             tricatdata: dict, medians: dict):
-    """Like analyze_layout but instead of breaking down by category, only
+    """Like tristroke_analysis but instead of breaking down by category, only
     calculates stats for the "total" category.
     
     Returns (speed, known_prop)"""

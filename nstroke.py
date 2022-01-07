@@ -17,6 +17,7 @@ def bistroke(tristroke: Tristroke, index0: int, index1: int):
         (tristroke.coords[index0], tristroke.coords[index1]))
 
 # If category starts or ends with ".", it's purely a sum of others
+# Note that order is important; supercategories before their subcategories
 all_bistroke_categories = [
     "",
     "alt",
@@ -101,7 +102,7 @@ def applicable_function(target_category: str):
     elif target_category.startswith("."):
         return lambda cat: cat.endswith(target_category)
     elif not target_category:
-        return lambda cat: True
+        return lambda _: True
     else:
         return lambda cat: cat == target_category
 
