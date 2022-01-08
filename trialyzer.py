@@ -227,6 +227,14 @@ def main(stdscr: curses.window):
                     "active_speeds_file": active_speeds_file,
                 }, settings_file)
 
+    def scan_layout_dir():
+        layout_file_list = []
+        with os.scandir("layouts/.") as files:
+            for file in files:
+                if "." not in file.name and file.is_file():
+                    layout_file_list.append(file.name)
+        return layout_file_list                    
+
     while True:
         content_win.addstr(0, 0, "\n".join(startup_text()))
         content_win.addstr(height-2, 0, "> ")
@@ -277,11 +285,7 @@ def main(stdscr: curses.window):
                     message(f"/layouts/{layout_name} was not found.", 
                             gui_util.red)
             else: # list layouts
-                layout_file_list = []
-                with os.scandir("layouts/.") as files:
-                    for file in files:
-                        if "." not in file.name and file.is_file():
-                            layout_file_list.append(file.name)
+                layout_file_list = scan_layout_dir()
                 if not layout_file_list:
                     message("No layouts found in /layouts/", gui_util.blue)
                     continue
@@ -342,9 +346,36 @@ def main(stdscr: curses.window):
                 "\nBistroke categories          freq    exact   avg_ms      ms")
             print_analysis_stats(tri_stats, tri_header_line)
             print_analysis_stats(bi_stats, bi_header_line)
-            
         elif command in ("r", "rank"):
-            message("Layout ranking is not yet implemented", gui_util.red)
+            # message("Layout ranking is not yet implemented", gui_util.red)
+            layout_file_list = scan_layout_dir()
+            if not layout_file_list:
+                message("No layouts found in /layouts/", gui_util.red)
+                continue
+            message(f"Analyzing {len(layout_file_list)} layouts >>>", gui_util.green)
+            layouts = [layout.get_layout(name) for name in layout_file_list]
+            data = {}
+            csvdata = load_csv_data(active_speeds_file)
+            width = max(len(name) for name in layout_file_list)
+            gui_util.insert_line_bottom(
+                "\nLayout" + " "*(width-3) + "avg_ms   wpm    exact", right_pane)
+            first_row = right_pane.getmaxyx()[0] - len(layouts) - 2
+            right_pane.scroll(len(layouts) + 2)
+            for lay in layouts:
+                medians = get_medians_for_layout(csvdata, lay)
+                tricatdata = tristroke_category_data(medians)
+                data[lay.name] = summary_tristroke_analysis(
+                    lay, tricatdata, medians)
+                row = first_row
+                for lay in sorted(data, key=lambda d: data[d][0]):
+                    right_pane.move(row, 0)
+                    right_pane.clrtoeol()
+                    right_pane.addstr(
+                        row, 0, f"{lay:{width}s}   {data[lay][0]:6.2f}   "
+                        f"{int(12000/data[lay][0]):3}   {data[lay][1]:6.2%}")
+                    row += 1
+                right_pane.refresh()
+            message(f"Ranking complete", gui_util.green)
         elif command in ("bs", "bistrokes"):
             if not args:
                 message("Crunching the numbers >>>", gui_util.green)
@@ -946,7 +977,7 @@ def summary_tristroke_analysis(layout: layout.Layout,
     calculates stats for the "total" category.
     
     Returns (speed, known_prop)"""
-    with open("/data/shai.json") as file:
+    with open("data/shai.json") as file:
         corpus = json.load(file)
 
     trigram_freqs = corpus["trigrams"]
@@ -965,7 +996,7 @@ def summary_tristroke_analysis(layout: layout.Layout,
         except KeyError: # no entry in known medians
             speed = tricatdata[tristroke_category(tristroke)][0]
         finally:
-            total_time += speed
+            total_time += speed * freq
             total_freq += freq
 
     return (total_time/total_freq, known_freq/total_freq)

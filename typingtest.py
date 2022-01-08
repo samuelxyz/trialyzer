@@ -26,7 +26,7 @@ def wpm(ms) -> int:
     """
     return int(12000/ms)
 
-def test(window: curses.window, trigram: Iterable[str], active_layout: layout.Layout):
+def test(win: curses.window, trigram: Iterable[str], active_layout: layout.Layout):
     """Run a typing test with the specified trigram.
 
     trigram is a list of three key names.
@@ -34,12 +34,12 @@ def test(window: curses.window, trigram: Iterable[str], active_layout: layout.La
 
     curses.curs_set(0)
 
-    window.clear()
-    window.addstr(0, 0, "Typing test - Press esc to finish")
+    win.clear()
+    win.addstr(0, 0, "Typing test - Press esc to finish")
 
-    height, width = window.getmaxyx()
-    stats_win = window.derwin(13, width, 1, 0)
-    message_win = window.derwin(13, 0)
+    height, width = win.getmaxyx()
+    stats_win = win.derwin(13, width, 1, 0)
+    message_win = win.derwin(13, 0)
 
     tristroke = active_layout.to_nstroke(trigram)
     fingers = tuple(f.name for f in tristroke.fingers)
@@ -137,10 +137,10 @@ def test(window: curses.window, trigram: Iterable[str], active_layout: layout.La
         stats_win.addstr(11, 0, format_stats(speeds_02))
 
         stats_win.refresh()
-        window.refresh()
-        window.move(height-1, 0)
+        win.refresh()
+        win.move(height-1, 0)
 
-    window.refresh()
+    win.refresh()
     curses.flushinp()
     curses.curs_set(1)
 

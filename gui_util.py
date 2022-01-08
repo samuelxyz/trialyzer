@@ -39,35 +39,35 @@ def color_scale(worst, best, target, exclude_zeros = False):
     i = int(len(gradient_colors)*fraction)
     return gradient_colors[i]
 
-def insert_line_bottom(text: str, window: curses.window, attr: int = ...):
+def insert_line_bottom(text: str, win: curses.window, attr: int = ...):
     """Scrolls a line in from the bottom of the window. 
     Wraps overflow onto subsequent lines.
     Does not refresh the window.
     """
     if "\n" in text:
         for subtext in text.split("\n"):
-            insert_line_bottom(subtext, window, attr)
+            insert_line_bottom(subtext, win, attr)
         return
     
-    ymax, xmax = window.getmaxyx()
+    ymax, xmax = win.getmaxyx()
 
     while len(text) > xmax-1:
         first_line = text[:xmax-1]
         text = text[xmax-1:]
-        insert_line_bottom(first_line, window, attr)
+        insert_line_bottom(first_line, win, attr)
 
-    # window.scrollok(True)
-    # window.idlok(True)
-    window.scroll(1)
+    # win.scrollok(True)
+    # win.idlok(True)
+    win.scroll(1)
 
     if attr != ...:
-        window.addstr(ymax-1, 0, text, attr)
+        win.addstr(ymax-1, 0, text, attr)
     else:
-        window.addstr(ymax-1, 0, text)
+        win.addstr(ymax-1, 0, text)
 
-def debug_win(window: curses.window, label: str):
-    window.border()
-    for i in range(window.getmaxyx()[0]):
-        window.addstr(i, 0, str(i) + " ")
-    window.addstr(0, 0, label + " 0,0")
-    window.refresh()
+def debug_win(win: curses.window, label: str):
+    win.border()
+    for i in range(win.getmaxyx()[0]):
+        win.addstr(i, 0, str(i) + " ")
+    win.addstr(0, 0, label + " 0,0")
+    win.refresh()
