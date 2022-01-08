@@ -17,21 +17,29 @@ import gui_util
 
 def main(stdscr: curses.window):
     
+    startup_messages = []
+    
     try:
         with open("session_settings.json") as settings_file:
             settings = json.load(settings_file)
-        startup_layout_name = settings["active_layout_name"]
+        s_analysis_target = settings["analysis_target"]
+        s_user_layout = settings["user_layout"]
         active_speeds_file = settings["active_speeds_file"]
-    except OSError:
-        startup_layout_name = "qwerty"
+        startup_messages.append(("Loaded user settings", gui_util.green))
+    except (OSError, KeyError):
+        s_analysis_target = "qwerty"
+        s_user_layout = "qwerty"
         active_speeds_file = "default"
+        startup_messages.append(("Using default user settings", gui_util.red))
 
-    active_layout = layout.get_layout(startup_layout_name)
+    analysis_target = layout.get_layout(s_analysis_target)
+    user_layout = layout.get_layout(s_user_layout)
     
     def startup_text(): 
         return [
             "\"h\" or \"help\" to show command list",
-            f"Active layout: {active_layout}",
+            f"Analysis target: {analysis_target}",
+            f"User layout: {user_layout}",
             f"Active speeds file: {active_speeds_file}"
             f" (/data/{active_speeds_file}.csv)"
         ]
@@ -223,7 +231,8 @@ def main(stdscr: curses.window):
     def save_session_settings():
         with open("session_settings.json", "w") as settings_file:
             json.dump(
-                {   "active_layout_name": active_layout.name,
+                {   "analysis_target": analysis_target.name,
+                    "user_layout": user_layout.name,
                     "active_speeds_file": active_speeds_file,
                 }, settings_file)
 
@@ -235,6 +244,9 @@ def main(stdscr: curses.window):
                     layout_file_list.append(file.name)
         return layout_file_list                    
 
+    for item in startup_messages:
+        message(*item)
+    
     while True:
         content_win.addstr(0, 0, "\n".join(startup_text()))
         content_win.addstr(height-2, 0, "> ")
@@ -258,18 +270,18 @@ def main(stdscr: curses.window):
             return
         elif command in ("t", "type"):
             if not args:
-                tristroke = "abc" # TODO: Automatically pick a trigram
+                trigram = "abc" # TODO: Automatically pick a trigram
             elif len(args[0]) == 3:
-                tristroke = [char for char in args[0]]
+                trigram = [char for char in args[0]]
             elif len(args) == 3:
-                tristroke = args
+                trigram = args
             else:
                 message("Malformed trigram", gui_util.red)
                 continue
             message("Starting typing test >>>", gui_util.green)
             unsaved_typingtest_data.append(
-                (active_layout.to_nstroke(tristroke),
-                    typingtest.test(right_pane, tristroke, active_layout))
+                (user_layout.to_nstroke(trigram),
+                    typingtest.test(right_pane, trigram, user_layout))
             )
             message("Finished typing test", gui_util.green)
             input_win.clear()
@@ -277,8 +289,8 @@ def main(stdscr: curses.window):
             layout_name = " ".join(args)
             if layout_name: # set layout
                 try:
-                    active_layout = layout.get_layout(layout_name)
-                    message("Set " + layout_name + " as the active layout.",
+                    analysis_target = layout.get_layout(layout_name)
+                    message("Set " + layout_name + " as the analysis target.",
                             gui_util.green)
                     save_session_settings()
                 except OSError:
@@ -294,6 +306,17 @@ def main(stdscr: curses.window):
                 message("Layouts:", win = right_pane)
                 for name in layout_file_list:
                     message(name, win = right_pane)
+        elif command in ("u", "use"):
+            layout_name = " ".join(args)
+            if layout_name: # set layout
+                try:
+                    user_layout = layout.get_layout(layout_name)
+                    message("Set " + layout_name + " as the user layout.",
+                            gui_util.green)
+                    save_session_settings()
+                except OSError:
+                    message(f"/layouts/{layout_name} was not found.", 
+                            gui_util.red)
         elif command in ("s", "save"):
             if not unsaved_typingtest_data:
                 message("No unsaved data", gui_util.blue)
@@ -318,7 +341,7 @@ def main(stdscr: curses.window):
                             gui_util.red)
                     continue
             else:
-                target_layout = active_layout
+                target_layout = analysis_target
             message("Crunching the numbers >>>", gui_util.green)
             message_win.refresh()
             
@@ -382,7 +405,7 @@ def main(stdscr: curses.window):
                 message_win.refresh()
                 right_pane.clear()
                 data = bistroke_category_data(get_medians_for_layout(
-                    load_csv_data(active_speeds_file), active_layout))
+                    load_csv_data(active_speeds_file), analysis_target))
                 print_stroke_categories(data)
             else:
                 message("Individual bistroke stats are"
@@ -392,12 +415,12 @@ def main(stdscr: curses.window):
                 message("Crunching the numbers >>>", gui_util.green)
                 right_pane.clear()
                 data = tristroke_category_data(get_medians_for_layout(
-                    load_csv_data(active_speeds_file), active_layout))
+                    load_csv_data(active_speeds_file), analysis_target))
                 header_line = (
                     "Category                       ms    n     possible")
                 gui_util.insert_line_bottom(header_line, right_pane)
-                active_layout.preprocessors["counts"].join()
-                print_stroke_categories(data, active_layout.counts)
+                analysis_target.preprocessors["counts"].join()
+                print_stroke_categories(data, analysis_target.counts)
             else:
                 message("Individual tristroke stats are"
                     " not yet implemented", gui_util.red)
@@ -419,7 +442,8 @@ def main(stdscr: curses.window):
                 "-----------------------------------------",
                 "h[elp]: Show this list",
                 "t[ype] <trigram>: Enter typing test",
-                "l[ayout] [layout name]: Set active layout, or show options",
+                "u[se] <layout name>: Set layout used in typing test",
+                "l[ayout] [layout name]: Set analysis target, or show options",
                 "sf [filename]: Set or reset active speeds file",
                 "s[ave]: Save tristroke data to active speeds file",
                 "a[nalyze] [layout name]: Detailed layout analysis",
@@ -465,7 +489,7 @@ def main(stdscr: curses.window):
             message("Crunching the numbers >>>", gui_util.green)
             (speed, num_samples, with_fingers, without_fingers
             ) = data_for_tristroke_category(category, get_medians_for_layout(
-                load_csv_data(active_speeds_file), active_layout
+                load_csv_data(active_speeds_file), analysis_target
             ))
             display_name = (category_display_names[category] 
                 if category in category_display_names else category)
