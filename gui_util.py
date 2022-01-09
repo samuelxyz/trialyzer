@@ -14,7 +14,7 @@ def init_colors():
     # bg = curses.COLOR_BLACK
     curses.init_pair(red, curses.COLOR_RED, bg)
     curses.init_pair(green, curses.COLOR_GREEN, bg)
-    curses.init_pair(blue, curses.COLOR_BLUE, bg)
+    curses.init_pair(blue, curses.COLOR_CYAN, bg)
     curses.init_pair(gray, 244, bg)
 
     # n = gradient_colors + 8

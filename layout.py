@@ -73,7 +73,8 @@ class Layout:
     def to_nstroke(self, ngram: Iterable[str], note: str = "", 
                      fingers: Iterable[fingermap.Finger] = ...) -> Nstroke:
         """Converts an ngram into an nstroke. Leave fingers blank
-        to auto-calculate from the keymap.
+        to auto-calculate from the keymap. Since this uses functools.cache,
+        give immutable arguments only.
         """
         
         if fingers == ...:

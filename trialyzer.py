@@ -272,15 +272,22 @@ def main(stdscr: curses.window):
             if not args:
                 trigram = "abc" # TODO: Automatically pick a trigram
             elif len(args[0]) == 3:
-                trigram = [char for char in args[0]]
+                trigram = tuple(char for char in args[0])
             elif len(args) == 3:
-                trigram = args
+                trigram = tuple(args)
             else:
                 message("Malformed trigram", gui_util.red)
                 continue
+            tristroke = user_layout.to_nstroke(trigram)
+            csvdata = load_csv_data(active_speeds_file)
+            if tristroke in csvdata:
+                message(
+                    f"Note: {' '.join(trigram)} already has "
+                    f"{len(csvdata[tristroke][0])} data points",
+                    gui_util.blue)
             message("Starting typing test >>>", gui_util.green)
             unsaved_typingtest_data.append(
-                (user_layout.to_nstroke(trigram),
+                (tristroke,
                     typingtest.test(right_pane, trigram, user_layout))
             )
             message("Finished typing test", gui_util.green)
