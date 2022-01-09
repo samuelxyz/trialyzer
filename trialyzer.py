@@ -395,7 +395,7 @@ def main(stdscr: curses.window):
                     right_pane.clrtoeol()
                     right_pane.addstr(
                         row, 0, f"{lay:{width}s}   {data[lay][0]:6.2f}   "
-                        f"{int(12000/data[lay][0]):3}   {data[lay][1]:6.2%}")
+                        f"{int(24000/data[lay][0]):3}   {data[lay][1]:6.2%}")
                     row += 1
                 right_pane.refresh()
             message(f"Ranking complete", gui_util.green)

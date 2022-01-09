@@ -2,8 +2,9 @@ from collections import namedtuple
 import itertools
 from typing import Sequence
 import operator
-from board import Coord
+import functools
 
+from board import Coord
 from fingermap import Finger
 
 Tristroke = namedtuple("Tristroke", "note fingers coords")
@@ -106,6 +107,7 @@ def applicable_function(target_category: str):
     else:
         return lambda cat: cat == target_category
 
+@functools.cache
 def compatible(a: Tristroke, b: Tristroke):
     """Assumes it is already known that a.fingers == b.fingers.
     
@@ -125,6 +127,7 @@ def compatible(a: Tristroke, b: Tristroke):
                 return False
     return True
 
+@functools.cache
 def bifinger_category(fingers: Sequence[Finger], coords: Sequence[Coord]):
     # Used by both bistroke_category() and tristroke_category()
     if Finger.UNKNOWN in fingers:
@@ -138,6 +141,7 @@ def bifinger_category(fingers: Sequence[Finger], coords: Sequence[Coord]):
     else:
         return "roll.out" if delta > 0 else "roll.in"
 
+@functools.cache
 def bistroke_category(nstroke: Nstroke, 
                       index0: int = 0, index1: int = 1):
     category = bifinger_category(
@@ -147,6 +151,7 @@ def bistroke_category(nstroke: Nstroke,
         category += detect_scissor(nstroke, index0, index1)
     return category
 
+@functools.cache
 def tristroke_category(tristroke: Tristroke):
     if Finger.UNKNOWN in tristroke.fingers:
         return "unknown"
@@ -181,6 +186,7 @@ def tristroke_category(tristroke: Tristroke):
     else: # second.startswith("roll")
         return second + detect_scissor(tristroke, 1, 2) # roll
 
+@functools.cache
 def detect_scissor(nstroke: Nstroke, index0: int = 0, index1: int = 1):
     """Given that the keys (optionally specified by index) are typed with the 
     same hand, return \".scissor\" if neighboring fingers must reach coords 
@@ -192,6 +198,7 @@ def detect_scissor(nstroke: Nstroke, index0: int = 0, index1: int = 1):
     dist_sq = sum((n**2 for n in vec))
     return ".scissor" if dist_sq >= 4 else ""
 
+@functools.cache
 def detect_scissor_roll(tristroke: Tristroke):
     if detect_scissor(tristroke, 0, 1):
         if detect_scissor(tristroke, 1, 2):
@@ -203,12 +210,14 @@ def detect_scissor_roll(tristroke: Tristroke):
     else:
         return ""
 
+@functools.cache
 def detect_scissor_skip(tristroke: Tristroke):
     if detect_scissor(tristroke, 0, 2):
         return ".scissor_skip"
     else:
         return ""
 
+@functools.cache
 def detect_scissor_any(tristroke: Tristroke):
     cat = detect_scissor_roll(tristroke) + detect_scissor_skip(tristroke)
     return ".scissor_and_skip" if cat == ".scissor.scissor_skip" else cat

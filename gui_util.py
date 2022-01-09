@@ -9,10 +9,13 @@ gradient_colors = (196, 202, 208, 214, 220, 226, 190, 154, 118, 82, 46)
 
 def init_colors():
     curses.start_color()
-    curses.init_pair(red, curses.COLOR_RED, curses.COLOR_BLACK)
-    curses.init_pair(green, curses.COLOR_GREEN, curses.COLOR_BLACK)
-    curses.init_pair(blue, curses.COLOR_BLUE, curses.COLOR_BLACK)
-    curses.init_pair(gray, 244, curses.COLOR_BLACK)
+    curses.use_default_colors()
+    bg = -1
+    # bg = curses.COLOR_BLACK
+    curses.init_pair(red, curses.COLOR_RED, bg)
+    curses.init_pair(green, curses.COLOR_GREEN, bg)
+    curses.init_pair(blue, curses.COLOR_BLUE, bg)
+    curses.init_pair(gray, 244, bg)
 
     # n = gradient_colors + 8
     # m = min_gradient_color - 4
@@ -26,7 +29,7 @@ def init_colors():
         # curses.init_pair(m+i, m+i, curses.COLOR_BLACK)
 
     for i in range(5, curses.COLOR_PAIRS):
-        curses.init_pair(i, i, curses.COLOR_BLACK)
+        curses.init_pair(i, i, bg)
 
 def color_scale(worst, best, target, exclude_zeros = False):
     """Make sure to run the result through curses.color_pair()."""

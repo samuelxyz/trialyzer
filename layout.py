@@ -14,6 +14,8 @@ class Layout:
         self.name = name
         self.keys = {} # dict[Pos, str]
         self.positions = {} # dict[str, Pos]
+        self.fingers = {} # dict[str, Finger]
+        self.coords = {} # dict[str, Coord]
         self.counts = {category: 0 for category in all_tristroke_categories}
         self.preprocessors = {
             "counts": threading.Thread(
@@ -48,6 +50,10 @@ class Layout:
                     pos = fingermap.Pos(first_row + r, first_col + c)
                     self.keys[pos] = key
                     self.positions[key] = pos
+                    self.fingers[key] = self.fingermap.fingers[
+                        self.positions[key]]
+                    self.coords[key] = self.board.coords[
+                        self.positions[key]]
 
     def calculate_counts(self):
         for tristroke in self.all_nstrokes(3):
@@ -63,12 +69,7 @@ class Layout:
         return (self.name + " (" + self.fingermap.name + ", " 
             + self.board.name +  ")")
 
-    def finger(self, keyname: str) -> fingermap.Finger:
-        return self.fingermap.fingers[self.positions[keyname]]
-
-    def coord(self, keyname: str) -> board.Coord:
-        return self.board.coords[self.positions[keyname]]
-
+    @functools.cache
     def to_nstroke(self, ngram: Iterable[str], note: str = "", 
                      fingers: Iterable[fingermap.Finger] = ...) -> Nstroke:
         """Converts an ngram into an nstroke. Leave fingers blank
@@ -76,9 +77,9 @@ class Layout:
         """
         
         if fingers == ...:
-            fingers = (self.finger(char) for char in ngram)
+            fingers = (self.fingers[key] for key in ngram)
         return Nstroke(note, tuple(fingers),
-                      tuple(self.coord(char) for char in ngram))
+                      tuple(self.coords[key] for key in ngram))
 
     def all_nstrokes(self, n: int = 3):
         ngrams = itertools.product(self.keys.values(), repeat=n)
