@@ -67,7 +67,7 @@ def main(stdscr: curses.window):
     input_win = content_win.derwin(height-2, 2)
     input_box = curses.textpad.Textbox(input_win, True)
     
-    unsaved_typingtest_data = []
+    typingtest_data = []
 
     def message(msg: str, color: int = 0, win: curses.window = message_win):
         gui_util.insert_line_bottom(
@@ -236,13 +236,13 @@ def main(stdscr: curses.window):
                     "active_speeds_file": active_speeds_file,
                 }, settings_file)
 
-    def scan_layout_dir():
-        layout_file_list = []
-        with os.scandir("layouts/.") as files:
+    def scan_dir(path: str = "layouts/.", exclude: str = "."):
+        file_list = []
+        with os.scandir(path) as files:
             for file in files:
-                if "." not in file.name and file.is_file():
-                    layout_file_list.append(file.name)
-        return layout_file_list                    
+                if exclude not in file.name and file.is_file():
+                    file_list.append(file.name)
+        return file_list                    
 
     for item in startup_messages:
         message(*item)
@@ -261,20 +261,14 @@ def main(stdscr: curses.window):
         command = args.pop(0).lower()
 
         if command in ("q", "quit"):
-            if unsaved_typingtest_data:
-                message("Quit without saving? (y/n)", gui_util.blue)
-                if get_input().strip().lower() in ("y", "yes"):
-                    return
-                else:
-                    continue
             return
         elif command in ("t", "type"):
             if not args:
                 trigram = "abc" # TODO: Automatically pick a trigram
-            elif len(args[0]) == 3:
-                trigram = tuple(char for char in args[0])
             elif len(args) == 3:
                 trigram = tuple(args)
+            elif len(args) == 1 and len(args[0]) == 3:
+                trigram = args[0]
             else:
                 message("Malformed trigram", gui_util.red)
                 continue
@@ -286,13 +280,31 @@ def main(stdscr: curses.window):
                     f"{len(csvdata[tristroke][0])} data points",
                     gui_util.blue)
             message("Starting typing test >>>", gui_util.green)
-            unsaved_typingtest_data.append(
-                (tristroke,
-                    typingtest.test(right_pane, trigram, user_layout))
-            )
-            message("Finished typing test", gui_util.green)
+            typingtest_data = typingtest.test(right_pane, trigram, user_layout)
             input_win.clear()
-        elif command in ("l", "layout", "layouts"):
+            if tristroke not in csvdata:
+                csvdata[tristroke] = ([],[])
+            csvdata[tristroke][0].extend(typingtest_data[0])
+            csvdata[tristroke][1].extend(typingtest_data[1])
+            save_csv_data(csvdata, active_speeds_file)
+            message("New data saved", gui_util.green)
+        elif command in ("c", "clear"):
+            if len(args) == 3:
+                trigram = tuple(args)
+            elif len(args) == 1 and len(args[0]) == 3:
+                trigram = args[0]
+            else:
+                message("Usage: c[lear] <trigram>", gui_util.red)
+                continue
+            csvdata = load_csv_data(active_speeds_file)
+            tristroke = user_layout.to_nstroke(trigram)
+            try:
+                num_deleted = len(csvdata.pop(tristroke)[0])
+            except KeyError:
+                num_deleted = 0
+            save_csv_data(csvdata, active_speeds_file)
+            message(f"Deleted {num_deleted} data points for {' '.join(trigram)}")
+        elif command in ("l", "layout"):
             layout_name = " ".join(args)
             if layout_name: # set layout
                 try:
@@ -303,16 +315,8 @@ def main(stdscr: curses.window):
                 except OSError:
                     message(f"/layouts/{layout_name} was not found.", 
                             gui_util.red)
-            else: # list layouts
-                layout_file_list = scan_layout_dir()
-                if not layout_file_list:
-                    message("No layouts found in /layouts/", gui_util.blue)
-                    continue
-                message(f"{len(layout_file_list)} layouts found >>>", gui_util.green)
-                right_pane.scroll(1)
-                message("Layouts:", win = right_pane)
-                for name in layout_file_list:
-                    message(name, win = right_pane)
+            else:
+                message("Usage: l[ayout] <layout name>", gui_util.red)
         elif command in ("u", "use"):
             layout_name = " ".join(args)
             if layout_name: # set layout
@@ -324,20 +328,6 @@ def main(stdscr: curses.window):
                 except OSError:
                     message(f"/layouts/{layout_name} was not found.", 
                             gui_util.red)
-        elif command in ("s", "save"):
-            if not unsaved_typingtest_data:
-                message("No unsaved data", gui_util.blue)
-                continue
-            data = load_csv_data(active_speeds_file)
-            for entry in unsaved_typingtest_data:
-                tristroke: Tristroke = entry[0]
-                if tristroke not in data:
-                    data[tristroke] = ([],[])
-                data[tristroke][0].extend(entry[1][0])
-                data[tristroke][1].extend(entry[1][1])
-            unsaved_typingtest_data.clear()
-            save_csv_data(data, active_speeds_file)
-            message("Data saved", gui_util.green)
         elif command in ("a", "analyze"):
             if args:
                 layout_name = " ".join(args)
@@ -377,8 +367,7 @@ def main(stdscr: curses.window):
             print_analysis_stats(tri_stats, tri_header_line)
             print_analysis_stats(bi_stats, bi_header_line)
         elif command in ("r", "rank"):
-            # message("Layout ranking is not yet implemented", gui_util.red)
-            layout_file_list = scan_layout_dir()
+            layout_file_list = scan_dir()
             if not layout_file_list:
                 message("No layouts found in /layouts/", gui_util.red)
                 continue
@@ -406,7 +395,7 @@ def main(stdscr: curses.window):
                     row += 1
                 right_pane.refresh()
             message(f"Ranking complete", gui_util.green)
-        elif command in ("bs", "bistrokes"):
+        elif command in ("bs", "bistroke"):
             if not args:
                 message("Crunching the numbers >>>", gui_util.green)
                 message_win.refresh()
@@ -431,14 +420,14 @@ def main(stdscr: curses.window):
             else:
                 message("Individual tristroke stats are"
                     " not yet implemented", gui_util.red)
-        elif command == "sf":
+        elif command == "df":
             if not args:
                 active_speeds_file = "default"
             else:
                 active_speeds_file = " ".join(args)
-            message(f"Set active speeds file to {active_speeds_file}",
+            message(f"Set active speeds file to /data/{active_speeds_file}.csv",
                     gui_util.green)
-            if not os.path.exists("data/" + active_speeds_file + ".csv"):
+            if not os.path.exists(f"data/{active_speeds_file}.csv"):
                 message("The new file will be written upon save", gui_util.blue)
             save_session_settings()
         elif command in ("h", "help"):
@@ -446,19 +435,21 @@ def main(stdscr: curses.window):
                 "",
                 "",
                 "Command <required thing> [optional thing]",
-                "-----------------------------------------",
+                "------General commands------",
                 "h[elp]: Show this list",
-                "t[ype] <trigram>: Enter typing test",
+                "q[uit]",
+                "----Typing data commands----",
                 "u[se] <layout name>: Set layout used in typing test",
-                "l[ayout] [layout name]: Set analysis target, or show options",
-                "sf [filename]: Set or reset active speeds file",
-                "s[ave]: Save tristroke data to active speeds file",
+                "t[ype] <trigram>: Run typing test",
+                "c[lear] <trigram>: Erase data for trigram",
+                "df [filename]: Set typing data file, or use default",
+                "-----Analysis commands-----",
+                "l[ayout] <layout name>: Set analysis target",
                 "a[nalyze] [layout name]: Detailed layout analysis",
                 "r[ank]: Rank all layouts",
                 "bs [bistroke]: Show specified/all bistroke stats",
                 "ts [tristroke]: Show specified/all tristroke stats",
                 "tsc [category]: Show tristroke category/total stats",
-                "q[uit]"
             ]
             ymax = right_pane.getmaxyx()[0]
             for line in help_text:
