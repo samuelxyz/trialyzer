@@ -1,3 +1,4 @@
+import operator
 import time
 import queue
 import statistics
@@ -5,6 +6,7 @@ import curses
 from typing import Iterable
 from pynput import keyboard
 
+import nstroke
 import layout
 import gui_util
 
@@ -26,10 +28,14 @@ def wpm(ms) -> int:
     """
     return int(12000/ms)
 
-def test(win: curses.window, trigram: Iterable[str], active_layout: layout.Layout):
+def test(win: curses.window, trigram: Iterable[str], 
+         user_layout: layout.Layout, csvdata: dict):
     """Run a typing test with the specified trigram.
+    The new data is saved into csvdata.
 
     trigram is a list of three key names.
+    csvdata is the output of trialyzer.load_csv_data(), 
+    aka dict[Tristroke, speeds_01, speeds_12]
     """
 
     curses.curs_set(0)
@@ -41,17 +47,21 @@ def test(win: curses.window, trigram: Iterable[str], active_layout: layout.Layou
     stats_win = win.derwin(13, width, 1, 0)
     message_win = win.derwin(13, 0)
 
-    tristroke = active_layout.to_nstroke(trigram)
+    tristroke = user_layout.to_nstroke(trigram)
     fingers = tuple(f.name for f in tristroke.fingers)
 
     stats_win.hline(0, 0, "-", width-2)
-    stats_win.addstr(1, 0, "Bigram {} {} ({}, {})".format(*trigram[:2], *fingers[:2]))
+    stats_win.addstr(1, 0, "Bigram {} {} ({}, {}): {}".format(
+        *trigram[:2], *fingers[:2], nstroke.bistroke_category(tristroke, 0, 1)))
     stats_win.addstr(2, 0, "mean / stdev / median")
     stats_win.hline(4, 0, "-", width-2)
-    stats_win.addstr(5, 0, "Bigram {} {} ({}, {})".format(*trigram[1:], *fingers[1:]))
+    stats_win.addstr(5, 0, "Bigram {} {} ({}, {}): {}".format(
+        *trigram[1:], *fingers[1:], nstroke.bistroke_category(tristroke, 1, 2)))
     stats_win.addstr(6, 0, "mean / stdev / median")
     stats_win.hline(8, 0, "-", width-2)
-    stats_win.addstr(9, 0, "Trigram " + " ".join(trigram) + " ({}, {}, {})".format(*fingers))
+    stats_win.addstr(9, 0, "Trigram " + " ".join(trigram) + 
+        " ({}, {}, {}): {}".format(
+            *fingers, nstroke.tristroke_category(tristroke)))
     stats_win.addstr(10, 0, "mean / stdev / median")
     
     def message(msg: str, color: int = 0): # mostly for brevity
@@ -72,12 +82,11 @@ def test(win: curses.window, trigram: Iterable[str], active_layout: layout.Layou
 
     last_time = time.perf_counter_ns()
     next_index = 0
-    speeds_01 = []
-    speeds_12 = []
-    speeds_02 = []
-    gui_util.red = 1
-    gui_util.green = 2
-    gui_util.blue = 3
+    if tristroke not in csvdata:
+        csvdata[tristroke] = ([], [])
+    speeds_01 = csvdata[tristroke][0]
+    speeds_12 = csvdata[tristroke][1]
+    speeds_02 = list(map(operator.add, speeds_01, speeds_12))
 
     pynput_listener = keyboard.Listener(on_press=on_press,
                                         on_release=on_release)
@@ -143,5 +152,3 @@ def test(win: curses.window, trigram: Iterable[str], active_layout: layout.Layou
     win.refresh()
     curses.flushinp()
     curses.curs_set(1)
-
-    return (speeds_01, speeds_12)

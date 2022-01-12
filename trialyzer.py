@@ -280,14 +280,10 @@ def main(stdscr: curses.window):
                     f"{len(csvdata[tristroke][0])} data points",
                     gui_util.blue)
             message("Starting typing test >>>", gui_util.green)
-            typingtest_data = typingtest.test(right_pane, trigram, user_layout)
+            typingtest.test(right_pane, trigram, user_layout, csvdata)
             input_win.clear()
-            if tristroke not in csvdata:
-                csvdata[tristroke] = ([],[])
-            csvdata[tristroke][0].extend(typingtest_data[0])
-            csvdata[tristroke][1].extend(typingtest_data[1])
             save_csv_data(csvdata, active_speeds_file)
-            message("New data saved", gui_util.green)
+            message("Typing data saved", gui_util.green)
         elif command in ("c", "clear"):
             if len(args) == 3:
                 trigram = tuple(args)
