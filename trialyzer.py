@@ -263,24 +263,79 @@ def main(stdscr: curses.window):
         if command in ("q", "quit"):
             return
         elif command in ("t", "type"):
-            if not args:
-                trigram = "abc" # TODO: Automatically pick a trigram
+            if not args: # autosuggest trigram
+                # Choose the most frequent trigram from the least completed 
+                # category of the analysis target layout
+                with open("data/shai.json") as file:
+                    corpus = json.load(file)
+                trigram_list = corpus["toptrigrams"]
+                medians = get_medians_for_layout(
+                    load_csv_data(active_speeds_file), analysis_target)
+                catdata = tristroke_category_data(medians)
+                analysis_target.preprocessors["counts"].join()
+                counts = analysis_target.counts
+                completion = {}
+                for cat in catdata:
+                    if cat.startswith(".") or cat.endswith(".") or cat == "":
+                        continue
+                    n = catdata[cat][1]
+                    completion[cat] = n/counts[cat] if n > 0 else 0
+
+                ruled_out = {analysis_target.to_ngram(tristroke)
+                    for tristroke in medians} # already have data
+                trigram = None
+
+                def find_from_best_cat():
+                    if not completion:
+                        return None
+                    best_cat = min(completion, key = lambda cat: completion[cat])
+                    # trigram_list is sorted by descending frequency
+                    for entry in trigram_list:
+                        ng = entry["Ngram"]
+                        if ng in ruled_out:
+                            continue
+                        try:
+                            tristroke = analysis_target.to_nstroke(ng)
+                        except KeyError: # contains key not in layout
+                            continue
+                        if tristroke_category(tristroke) == best_cat:
+                            ruled_out.add(ng)
+                            if user_layout.to_ngram(tristroke): # keys exist
+                                return tristroke
+                    # if we get to this point, 
+                    # there was no compatible trigram in the category
+                    # Check next best category
+                    del completion[best_cat]
+                    return find_from_best_cat()
+                
+                tristroke = find_from_best_cat()
+                trigram = user_layout.to_ngram(tristroke)
+                if not tristroke:
+                    message("Unable to autosuggest - all compatible trigrams"
+                        " between the user layout and analysis target"
+                        " already have data", gui_util.red)
+                    continue
+                else:
+                    message(f"Autosuggesting trigram {' '.join(trigram)}\n"
+                        f"({analysis_target.name} "
+                        f"{' '.join(analysis_target.to_ngram(tristroke))})\n"
+                        "Pay attention, fingering may be unconventional!",
+                        gui_util.blue)
             elif len(args) == 3:
-                trigram = tuple(args)
+                tristroke = user_layout.to_nstroke(args)
             elif len(args) == 1 and len(args[0]) == 3:
-                trigram = args[0]
+                tristroke = user_layout.to_nstroke(args[0])
             else:
                 message("Malformed trigram", gui_util.red)
                 continue
-            tristroke = user_layout.to_nstroke(trigram)
             csvdata = load_csv_data(active_speeds_file)
             if tristroke in csvdata:
                 message(
-                    f"Note: {' '.join(trigram)} already has "
+                    f"Note: this tristroke already has "
                     f"{len(csvdata[tristroke][0])} data points",
                     gui_util.blue)
             message("Starting typing test >>>", gui_util.green)
-            typingtest.test(right_pane, trigram, user_layout, csvdata)
+            typingtest.test(right_pane, tristroke, user_layout, csvdata)
             input_win.clear()
             save_csv_data(csvdata, active_speeds_file)
             message("Typing data saved", gui_util.green)
@@ -584,12 +639,15 @@ def load_csv_data(filename: str):
     with open("data/" + filename + ".csv", "r", newline="") as csvfile:
         reader = csv.DictReader(csvfile, restkey="speeds")
         for row in reader:
+            if "speeds" not in row:
+                continue
             fingers = tuple(
                 (Finger[row["finger" + str(n)]] for n in range(3)))
             coords = tuple(
                 (Coord(float(row["x" + str(n)]), 
                        float(row["y" + str(n)])) for n in range(3)))
             tristroke = Tristroke(row["note"], fingers, coords)
+            # there may be multiple rows for the same tristroke
             if tristroke not in data:
                 data[tristroke] = ([], [])
             for i, time in enumerate(row["speeds"]):
@@ -605,6 +663,8 @@ def save_csv_data(data: dict, filename: str):
             w = csv.writer(csvfile)
             w.writerow(header)
             for tristroke in data:
+                if not data[tristroke] or not data[tristroke][0]:
+                    continue
                 row = start_csv_row(tristroke)
                 row.extend(itertools.chain.from_iterable(
                     zip(data[tristroke][0], 
@@ -636,11 +696,14 @@ def get_medians_for_layout(csv_data: dict, layout: layout.Layout):
         speeds_01 = speeds[tristroke][0]
         speeds_12 = speeds[tristroke][1]
         speeds_02 = map(operator.add, speeds_01, speeds_12)
-        medians[tristroke] = (
-            statistics.median(speeds_01),
-            statistics.median(speeds_12),
-            statistics.median(speeds_02)
-        )
+        try:
+            medians[tristroke] = (
+                statistics.median(speeds_01),
+                statistics.median(speeds_12),
+                statistics.median(speeds_02)
+            )
+        except statistics.StatisticsError:
+            continue
     return medians
 
 def print_bistroke_categories(layoutname: str): # for debug

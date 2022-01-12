@@ -69,6 +69,22 @@ class Layout:
         return (self.name + " (" + self.fingermap.name + ", " 
             + self.board.name +  ")")
 
+    def to_ngram(self, nstroke: Nstroke):
+        """Returns None if the Nstroke does not have a corresponding
+        ngram in this layout. Otherwise, returns a tuple of key names
+        based on the coordinates in the tristroke, disregarding the 
+        fingers and any notes.
+        """
+        ngram = []
+        try:
+            for coord in nstroke.coords:
+                pos = self.board.positions[coord]
+                key = self.keys[pos]
+                ngram.append(key)
+        except KeyError:
+            return None
+        return tuple(ngram)
+
     @functools.cache
     def to_nstroke(self, ngram: Iterable[str], note: str = "", 
                      fingers: Iterable[fingermap.Finger] = ...) -> Nstroke:

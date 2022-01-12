@@ -28,12 +28,11 @@ def wpm(ms) -> int:
     """
     return int(12000/ms)
 
-def test(win: curses.window, trigram: Iterable[str], 
+def test(win: curses.window, tristroke: nstroke.Tristroke, 
          user_layout: layout.Layout, csvdata: dict):
-    """Run a typing test with the specified trigram.
+    """Run a typing test with the specified tristroke.
     The new data is saved into csvdata.
 
-    trigram is a list of three key names.
     csvdata is the output of trialyzer.load_csv_data(), 
     aka dict[Tristroke, speeds_01, speeds_12]
     """
@@ -47,7 +46,16 @@ def test(win: curses.window, trigram: Iterable[str],
     stats_win = win.derwin(13, width, 1, 0)
     message_win = win.derwin(13, 0)
 
-    tristroke = user_layout.to_nstroke(trigram)
+    def message(msg: str, color: int = 0): # mostly for brevity
+        gui_util.insert_line_bottom(
+            msg, message_win, curses.color_pair(color))
+        message_win.refresh()
+
+    trigram = user_layout.to_ngram(tristroke)
+    if not trigram:
+        message("User layout does not have a trigram for the specified "
+            "tristroke\nExiting!", gui_util.red)
+
     fingers = tuple(f.name for f in tristroke.fingers)
 
     stats_win.hline(0, 0, "-", width-2)
@@ -63,11 +71,6 @@ def test(win: curses.window, trigram: Iterable[str],
         " ({}, {}, {}): {}".format(
             *fingers, nstroke.tristroke_category(tristroke)))
     stats_win.addstr(10, 0, "mean / stdev / median")
-    
-    def message(msg: str, color: int = 0): # mostly for brevity
-        gui_util.insert_line_bottom(
-            msg, message_win, curses.color_pair(color))
-        message_win.refresh()
 
     def format_stats(data: list):
         try:
