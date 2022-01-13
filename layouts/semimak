@@ -1,6 +1,6 @@
 fingermap: traditional
 board: ansi
 first_pos: TOP 1
-f l h v z  q w u o y
-s r n t k  c d e a i ;
-x ' b m j  p g , . /
+f l h v z q w u o y
+s r n t k c d e a i ;
+x ' b m j p g , . /

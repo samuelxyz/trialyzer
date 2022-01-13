@@ -8,7 +8,7 @@ from nstroke import *
 
 class Layout:
 
-    loaded = {} # dict of layouts
+    loaded = dict() # dict of layouts
 
     def __init__(self, name: str) -> None:
         self.name = name
@@ -30,6 +30,8 @@ class Layout:
         rows = []
         first_row = fingermap.Row.TOP
         first_col = 1
+        self.fingermap = None
+        self.board = None
         for row in s.split("\n"):
             tokens = row.split(" ")
             if tokens[0] == "fingermap:" and len(tokens) >= 2:
@@ -44,6 +46,10 @@ class Layout:
                 first_col = int(tokens[2])
             else:
                 rows.append(tokens)
+        if not self.fingermap:
+            self.fingermap = fingermap.get_fingermap("traditional")
+        if not self.board:
+            self.board = board.get_board("ansi")
         for r, row in enumerate(rows):
             for c, key in enumerate(row):
                 if key:
@@ -56,6 +62,16 @@ class Layout:
                         self.positions[key]]
 
     def calculate_counts(self):
+        for other_name in Layout.loaded:
+            other = Layout.loaded[other_name]
+            if (other is not self
+                and other.fingermap == self.fingermap 
+                and other.board == self.board):
+                # Will eventually need to account for alt fingering etc
+                self.preprocessors["counts"] = other.preprocessors["counts"]
+                self.counts = other.counts
+                return
+
         for tristroke in self.all_nstrokes(3):
             self.counts[tristroke_category(tristroke)] += 1
         for category in all_tristroke_categories:

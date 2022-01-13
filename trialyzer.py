@@ -291,7 +291,7 @@ def main(stdscr: curses.window):
                     best_cat = min(completion, key = lambda cat: completion[cat])
                     # trigram_list is sorted by descending frequency
                     for entry in trigram_list:
-                        ng = entry["Ngram"]
+                        ng = tuple(key for key in entry["Ngram"])
                         if ng in ruled_out:
                             continue
                         try:
@@ -316,10 +316,11 @@ def main(stdscr: curses.window):
                         " already have data", gui_util.red)
                     continue
                 else:
+                    fingers = tuple(finger.name for finger in tristroke.fingers)
                     message(f"Autosuggesting trigram {' '.join(trigram)}\n"
                         f"({analysis_target.name} "
                         f"{' '.join(analysis_target.to_ngram(tristroke))})\n"
-                        "Pay attention, fingering may be unconventional!",
+                        "Be sure to use {} {} {}".format(*fingers),
                         gui_util.blue)
             elif len(args) == 3:
                 tristroke = user_layout.to_nstroke(args)
@@ -429,8 +430,11 @@ def main(stdscr: curses.window):
             width = max(len(name) for name in layout_file_list)
             gui_util.insert_line_bottom(
                 "\nLayout" + " "*(width-3) + "avg_ms   wpm    exact", right_pane)
-            first_row = right_pane.getmaxyx()[0] - len(layouts) - 2
-            right_pane.scroll(len(layouts) + 2)
+            ymax = right_pane.getmaxyx()[0]
+            first_row = ymax - len(layouts) - 2
+            if first_row < 1:
+                first_row = 1
+            right_pane.scroll(min(ymax-1, len(layouts) + 2))
             for lay in layouts:
                 medians = get_medians_for_layout(csvdata, lay)
                 tricatdata = tristroke_category_data(medians)
@@ -438,12 +442,18 @@ def main(stdscr: curses.window):
                     lay, tricatdata, medians)
                 row = first_row
                 for lay in sorted(data, key=lambda d: data[d][0]):
-                    right_pane.move(row, 0)
-                    right_pane.clrtoeol()
-                    right_pane.addstr(
-                        row, 0, f"{lay:{width}s}   {data[lay][0]:6.2f}   "
-                        f"{int(24000/data[lay][0]):3}   {data[lay][1]:6.2%}")
-                    row += 1
+                    try:
+                        right_pane.move(row, 0)
+                        right_pane.clrtoeol()
+                        right_pane.addstr(
+                            row, 0, f"{lay:{width}s}   {data[lay][0]:6.2f}   "
+                            f"{int(24000/data[lay][0]):3}   "
+                            f"{data[lay][1]:6.2%}")
+                        row += 1
+                    except curses.error:
+                        continue # list went off the screen
+                        # TODO something better than just 
+                        # cutting off the list like this lmao
                 right_pane.refresh()
             message(f"Ranking complete", gui_util.green)
         elif command in ("bs", "bistroke"):
@@ -688,9 +698,9 @@ def get_medians_for_layout(csv_data: dict, layout: layout.Layout):
                 if layout_tristroke not in speeds:
                     speeds[layout_tristroke] = csv_data[csv_tristroke]
                 else:
-                    speeds[layout_tristroke][0].append(
+                    speeds[layout_tristroke][0].extend(
                         csv_data[csv_tristroke][0])
-                    speeds[layout_tristroke][1].append(
+                    speeds[layout_tristroke][1].extend(
                         csv_data[csv_tristroke][1])
     for tristroke in speeds:
         speeds_01 = speeds[tristroke][0]
@@ -843,11 +853,11 @@ def tristroke_category_data(medians: dict):
             # There may be no subcategories with known data either. 
             # Hence the next stages
     
-    # Build up some stuff from trigrams
-    # if not all_medians["sfb"]:
-    #     for tristroke in medians:
-    #         if tristroke_category(tristroke).startswith("sfs"):
-    #             all_medians["sfb"].append(medians[tristroke][2])
+    # Fill from other categories
+    if not all_medians["sfb."]:
+        for tristroke in medians:
+            if tristroke_category(tristroke).startswith("sfr"):
+                all_medians["sfb."].append(medians[tristroke][2])
     
     # fill in from supercategory
     all_categories.reverse() # most specific first
