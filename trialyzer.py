@@ -242,7 +242,27 @@ def main(stdscr: curses.window):
             for file in files:
                 if exclude not in file.name and file.is_file():
                     file_list.append(file.name)
-        return file_list                    
+        return file_list    
+
+    def parse_category(user_input: str = ""):
+        """Returns None and prints error message if category not found."""
+        if not user_input:
+                category_name = ""
+        else:
+            category_name = user_input.lower().strip()
+
+        if "(" in category_name:
+            category_name = category_name[:category_name.find("(")].strip()
+            # )) missing parentheses for rainbow brackets extension lmao
+        if category_name in all_tristroke_categories:
+            return category_name
+        elif category_name in category_display_names.values():
+            for cat in category_display_names:
+                if category_display_names[cat] == category_name:
+                    return cat
+        else:
+            message("Unrecognized category", gui_util.red)
+            return None     
 
     for item in startup_messages:
         message(*item)
@@ -456,6 +476,127 @@ def main(stdscr: curses.window):
                         # cutting off the list like this lmao
                 right_pane.refresh()
             message(f"Ranking complete", gui_util.green)
+        elif command == "rt":
+            reverse_opts = {"min": False, "max": True}
+            analysis_opts = {"freq": 0, "exact": 1, "avg_ms": 2, "ms": 3}
+            try:
+                reverse_ = reverse_opts[args[0]]
+                analysis_i = analysis_opts[args[1]]
+            except (KeyError, IndexError):
+                message("Usage: rt <min|max> <freq|exact|avg_ms|ms> [category]",
+                    gui_util.red)
+                continue
+            try:
+                category = parse_category(args[2])
+                if category is None:
+                    continue
+            except IndexError:
+                category = ""
+            category_name = (category_display_names[category] 
+                if category in category_display_names else category)
+            if category.endswith(".") or not category:
+                category_name += " (total) "
+
+            layout_file_list = scan_dir()
+            if not layout_file_list:
+                message("No layouts found in /layouts/", gui_util.red)
+                continue
+            message(f"Analyzing {len(layout_file_list)} layouts >>>",
+                gui_util.green)
+            width = max(len(name) for name in layout_file_list)
+            gui_util.insert_line_bottom(
+                f"\nRanking by tristroke category: {category_name}, "
+                f"{args[0]} {args[1]} first"
+                "\nLayout" + " "*(width-1) 
+                + "freq    exact   avg_ms      ms", right_pane)
+            ymax = right_pane.getmaxyx()[0]
+            first_row = ymax - len(layout_file_list) - 3
+            if first_row < 2:
+                first_row = 2
+            right_pane.scroll(min(ymax-2, len(layout_file_list) + 1))
+            right_pane.refresh()
+            layouts = [layout.get_layout(name) for name in layout_file_list]
+
+            data = {}
+            csvdata = load_csv_data(active_speeds_file)
+            
+            for lay in layouts:
+                medians = get_medians_for_layout(csvdata, lay)
+                tricatdata = tristroke_category_data(medians)
+                data[lay.name] = tristroke_analysis(
+                    lay, tricatdata, medians)
+                row = first_row
+                
+                # color calcs
+                pairs = [dict() for _ in range(4)] # tuple[dict[layname, pair]]
+                wb = [None for _ in range(4)]
+                # dict[layname, tuple]
+                stats = {layname: data[layname][category] for layname in data}
+                for i in (0,):
+                    wb[i] = (
+                        math.sqrt(min(val[i] for val in stats.values())),
+                        math.sqrt(max(val[i] for val in stats.values()))
+                    )
+                    for layname in stats:
+                        pairs[i][layname] = curses.color_pair(gui_util.color_scale(
+                            *wb[i], math.sqrt(stats[layname][i]), True
+                        ))
+                for i in (1,):
+                    wb[i] = (
+                        math.sqrt(min(val[i] for val in stats.values())),
+                        math.sqrt(max(val[i] for val in stats.values()))
+                    )
+                    for layname in stats:
+                        pairs[i][layname] = curses.color_pair(gui_util.color_scale(
+                            *wb[i], math.sqrt(stats[layname][i]), True
+                        ))
+                for i in (2,):
+                    wb[i] = (
+                        max(val[i] for val in stats.values()),
+                        min(val[i] for val in stats.values())
+                    )
+                    for layname in stats:
+                        pairs[i][layname] = curses.color_pair(gui_util.color_scale(
+                            *wb[i], stats[layname][i], True
+                        ))
+                for i in (3,):
+                    wb[i] = (
+                        math.sqrt(max(val[i] for val in stats.values())),
+                        math.sqrt(min(val[i] for val in stats.values()))
+                    )
+                    for layname in stats:
+                        pairs[i][layname] = curses.color_pair(gui_util.color_scale(
+                            *wb[i], math.sqrt(stats[layname][i]), True
+                        ))
+
+                # printing
+                for lay in sorted(
+                        data, key=lambda d: data[d][category][analysis_i], 
+                        reverse=reverse_):
+                    try:
+                        right_pane.move(row, 0)
+                        right_pane.clrtoeol()
+                        right_pane.addstr(
+                            row, 0, f"{lay:{width}s}   ")
+                        right_pane.addstr( # freq
+                            row, width+3, f"{data[lay][category][0]:>6.2%}",
+                            pairs[0][lay])
+                        right_pane.addstr( # known_freq
+                            row, width+12, f"{data[lay][category][1]:>6.2%}",
+                            pairs[1][lay])
+                        right_pane.addstr( # speed
+                            row, width+21, f"{data[lay][category][2]:>6.1f}",
+                            pairs[2][lay])
+                        right_pane.addstr( # contrib
+                            row, width+29, f"{data[lay][category][3]:>6.2f}",
+                            pairs[3][lay])
+                        row += 1
+                    except curses.error:
+                        continue # list went off the screen
+                        # TODO something better than just 
+                        # cutting off the list like this lmao
+                right_pane.refresh()
+            message(f"Ranking complete", gui_util.green)
         elif command in ("bs", "bistroke"):
             if not args:
                 message("Crunching the numbers >>>", gui_util.green)
@@ -495,19 +636,20 @@ def main(stdscr: curses.window):
             help_text = [
                 "",
                 "",
-                "Command <required thing> [optional thing]",
+                "Command <required thing> [optional thing] option1|option2",
                 "------General commands------",
                 "h[elp]: Show this list",
                 "q[uit]",
                 "----Typing data commands----",
                 "u[se] <layout name>: Set layout used in typing test",
-                "t[ype] <trigram>: Run typing test",
+                "t[ype] [trigram]: Run typing test",
                 "c[lear] <trigram>: Erase data for trigram",
                 "df [filename]: Set typing data file, or use default",
                 "-----Analysis commands-----",
                 "l[ayout] <layout name>: Set analysis target",
                 "a[nalyze] [layout name]: Detailed layout analysis",
-                "r[ank]: Rank all layouts",
+                "r[ank]: Rank all layouts by wpm",
+                "rt",
                 "bs [bistroke]: Show specified/all bistroke stats",
                 "ts [tristroke]: Show specified/all tristroke stats",
                 "tsc [category]: Show tristroke category/total stats",
@@ -527,23 +669,11 @@ def main(stdscr: curses.window):
             right_pane.refresh()
         elif command in ("tsc",):
             if not args:
-                category_name = ""
+                category = ""
             else:
-                category_name = args[0].lower().strip()
-
-            if "(" in category_name:
-                category_name = category_name[:category_name.find("(")].strip()
-                # )) missing parentheses for rainbow brackets extension lmao
-            if category_name in all_tristroke_categories:
-                category = category_name
-            elif category_name in category_display_names.values():
-                for cat in category_display_names:
-                    if category_display_names[cat] == category_name:
-                        category = cat
-                        break
-            else:
-                message("Unrecognized category", gui_util.red)
-                continue
+                category = parse_category(args[0])
+                if category is None:
+                    continue
             
             message("Crunching the numbers >>>", gui_util.green)
             (speed, num_samples, with_fingers, without_fingers
