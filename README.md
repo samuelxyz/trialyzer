@@ -27,6 +27,8 @@ Planned:
 - Layout generation/optimization
 - Heatmaps based on a variety of statistics
 - More fingermaps, boards, layouts
+- Alt fingering and sliding (maybe with some kind of customizable tag?)
+- Shift layers/multiple characters per key
 - Best and worst ngrams of each category
 
 ## Motivation

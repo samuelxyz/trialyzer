@@ -506,12 +506,14 @@ def main(stdscr: curses.window):
             data = {}
             csvdata = load_csv_data(active_speeds_file)
 
-            col_settings = ( # for colors
-                    {"transform": math.sqrt}, # freq
-                    {"transform": math.sqrt}, # exact
-                    {"worst": max, "best": min}, # avg_ms
-                    {"transform": math.sqrt, "worst": max, "best": min}, # ms
-                )
+            col_settings = [ # for colors
+                {"transform": math.sqrt}, # freq
+                {"transform": math.sqrt}, # exact
+                {"worst": max, "best": min}, # avg_ms
+                {"transform": math.sqrt, "worst": max, "best": min}, # ms
+            ]
+            col_settings_inverted = col_settings.copy()
+            col_settings_inverted[0] = col_settings_inverted[3]
             
             for lay in layouts:
                 medians = get_medians_for_layout(csvdata, lay)
@@ -520,9 +522,20 @@ def main(stdscr: curses.window):
                     lay, tricatdata, medians)
                 row = first_row
                 
-                # color calcs
+                # color freq by whether the category is faster than total
+                try:
+                    this_avg = statistics.mean(
+                        data[layname][category][2] for layname in data)
+                    total_avg = statistics.mean(
+                        data[layname][""][2] for layname in data)
+                    invert = this_avg > total_avg
+                except statistics.StatisticsError:
+                    invert = False
                 rows = {layname: data[layname][category] for layname in data}
-                pairs = gui_util.apply_scales(rows, col_settings)
+                if invert:
+                    pairs = gui_util.apply_scales(rows, col_settings_inverted)    
+                else:
+                    pairs = gui_util.apply_scales(rows, col_settings)
 
                 # printing
                 for rowname in sorted(
