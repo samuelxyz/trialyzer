@@ -2,7 +2,7 @@
 
 An idea I had for a keyboard layout analyzer. It includes a specialized trigram typing test to allow users to measure their speed on arbitrary trigrams, and uses that data as the basis for layout analysis.
 
-![Trialyzer's typing test in action](/misc/typingtest_image_2.png)
+![Trialyzer's typing test in action](/misc/typingtest_image_3.png)
 
 I'm also using this project as an opportunity to learn Python. This is my first time using Python for anything more substantial than CodingBat, and also my first project in VS Code, so things may be somewhat messy.
 
@@ -14,6 +14,20 @@ Usage:
 - Once you have the above packages installed in your environment, run `trialyzer.py`.
     - I'll probably get around to a requirements.txt eventually maybe possibly.
 - Trialyzer requires a pretty big console window for certain features. If you get a curses error, you may have to increase your window size and/or decrease font size.
+
+Features:
+- Layout analysis based on typing data provided by and personally applicable to you
+- A large variety of bigram and trigram statistics, accounting for both frequency and your measured ease of typing each
+- Autosuggest trigrams to use in the typing test to most effectively characterize a layout's common finger movements
+- Estimate the physical typing speed limit of each layout based on your typing data
+- Rank layouts by a large variety of different statistics
+- Custom layouts, fingermaps, and even physical board definitiens can be added in files
+
+Planned:
+- Layout generation/optimization
+- Heatmaps based on a variety of statistics
+- More fingermaps, boards, layouts
+- Best and worst ngrams of each category
 
 ## Motivation
 
@@ -49,13 +63,13 @@ Of course, this approach comes with some limitations and drawbacks.
 ## Terminology
 
 **Layout**  
-A mapping between key names (`a`, `;`, `LShift`) and key positions (row, column). A fingermap and board are also specified. Examples: `qwerty`, `colemak_dh_ansi`.
+A mapping between key names (`a`, `;`, `LShift`) and key positions (row, column). A fingermap and board are also specified for each layout. Examples: `QWERTY`, `colemak_dh`.
 
 **Fingermap**  
 A mapping between key positions (row, column) and fingers (`LI` for left index, `RP` for right pinky.) Examples: `traditional`, `angle_iso`.
 
 **Board**  
-A mapping between key positions (row, column) and physical locations of the keys (x/y coordinates). Examples: `iso`, `matrix`. 
+A mapping between key positions (row, column) and physical locations of the keys (x/y coordinates). Examples: `iso`, `ortho`. 
 
 **Bigram, trigram, n-gram**  
 Existing terminology meaning a sequence of characters or key names. These may be called "text n-grams" to further clarify that they refer only to key names, which may vary depending on layout, as opposed to physical keys on the board.
@@ -63,7 +77,7 @@ Existing terminology meaning a sequence of characters or key names. These may be
 **Bistroke, tristroke, n-stroke**  
 A sequence of physical key locations on the board, each associated with the finger used for that key. Trialyzer collects data on the typing speeds of different tristrokes using its built-in typing test, then applies it to analyze a selected layout by associating those tristrokes with text trigrams.
 
-(Note: Different fingermap-board combinations may have some tristrokes in common; for instance, all tristrokes involving the top and home row are identical between `traditional`-`ansi` and `angle_iso`-`iso`. Moreover, though the right hand is in a different position in `angle_iso`-`iso` versus `angle_wide_iso`-`iso`, the shape of each tristroke on the right hand is identical. Trialyzer will detect these commonalities, and allow the relevant typing speed data to be shared between different boards.)
+(Note: Different fingermap-board combinations may have some tristrokes in common; for instance, all tristrokes involving the top and home row are identical between `traditional`-`ansi` and `angle_iso`-`iso`. Moreover, though the right hand is in a different position in `angle_iso` versus `angle_wide_iso`, the shape of each tristroke on the right hand is identical. Trialyzer accounts for these commonalities, and allows the relevant typing speed data to be shared between different boards and fingermaps.)
 
 ## Nstroke categories
 

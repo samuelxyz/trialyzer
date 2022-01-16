@@ -604,7 +604,7 @@ def main(stdscr: curses.window):
                 "l[ayout] <layout name>: Set analysis target",
                 "a[nalyze] [layout name]: Detailed layout analysis",
                 "r[ank]: Rank all layouts by wpm",
-                "rt",
+                "rt <min|max> <freq|exact|avg_ms|ms> [category]: Rank by tristroke statistic",
                 "bs [bistroke]: Show specified/all bistroke stats",
                 "ts [tristroke]: Show specified/all tristroke stats",
                 "tsc [category]: Show tristroke category/total stats",
