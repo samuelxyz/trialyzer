@@ -154,51 +154,23 @@ def main(stdscr: curses.window):
         right_pane.refresh()
 
     def print_analysis_stats(stats: dict, header_line: str):
-        # color calcs
-        pairs = [dict() for _ in range(4)]
-        wb = [None for _ in range(4)]
-        for i in (0,):
-            wb[i] = (
-                math.sqrt(min(val[i] for val in stats.values())),
-                math.sqrt(max(stats[cat][i] for cat in stats if cat))
-            )
-            for category in stats:
-                pairs[i][category] = curses.color_pair(gui_util.color_scale(
-                    *wb[i], math.sqrt(stats[category][i]), True
-                ))
-        for i in (1,):
-            wb[i] = (
-                math.sqrt(min(val[i] for val in stats.values())),
-                math.sqrt(max(val[i] for val in stats.values()))
-            )
-            for category in stats:
-                pairs[i][category] = curses.color_pair(gui_util.color_scale(
-                    *wb[i], math.sqrt(stats[category][i]), True
-                ))
-        for i in (2,):
-            wb[i] = (
-                max(val[i] for val in stats.values()),
-                min(val[i] for val in stats.values())
-            )
-            for category in stats:
-                pairs[i][category] = curses.color_pair(gui_util.color_scale(
-                    *wb[i], stats[category][i], True
-                ))
-        for i in (3,):
-            wb[i] = (
-                math.sqrt(max(stats[cat][i] for cat in stats if cat)),
-                math.sqrt(min(val[i] for val in stats.values()))
-            )
-            for category in stats:
-                pairs[i][category] = curses.color_pair(gui_util.color_scale(
-                    *wb[i], math.sqrt(stats[category][i]), True
-                ))
+        # colors
+        col_settings = (
+            {"transform": math.sqrt, 
+                "scale_filter": lambda val: val != stats[""][0]},
+            {"transform": math.sqrt},
+            {"worst": max, "best": min},
+            {"transform": math.sqrt, "worst": max, "best": min,
+                "scale_filter": lambda val: val != stats[""][3]},
+         )
+        pairs = gui_util.apply_scales(stats, col_settings)
 
         gui_util.insert_line_bottom(header_line, right_pane)
         right_pane.scroll(len(stats))
         ymax = right_pane.getmaxyx()[0]
         row = ymax - len(stats)
 
+        # printing
         for category in sorted(stats):
             category_name = (category_display_names[category] 
                 if category in category_display_names else category)
@@ -438,7 +410,7 @@ def main(stdscr: curses.window):
                 "\nBistroke categories          freq    exact   avg_ms      ms")
             print_analysis_stats(tri_stats, tri_header_line)
             print_analysis_stats(bi_stats, bi_header_line)
-        elif command in ("r", "rank"):
+        elif command in ("r", "rank"): # uses summary_tristroke_analysis()
             layout_file_list = scan_dir()
             if not layout_file_list:
                 message("No layouts found in /layouts/", gui_util.red)
@@ -455,20 +427,34 @@ def main(stdscr: curses.window):
             if first_row < 1:
                 first_row = 1
             right_pane.scroll(min(ymax-1, len(layouts) + 2))
+
+            col_settings = (
+                {"transform": math.sqrt, "worst": max, "best": min}, # avg_ms
+                {"transform": math.sqrt}, # exact
+            )
+
             for lay in layouts:
                 medians = get_medians_for_layout(csvdata, lay)
                 tricatdata = tristroke_category_data(medians)
                 data[lay.name] = summary_tristroke_analysis(
                     lay, tricatdata, medians)
                 row = first_row
+                pairs = gui_util.apply_scales(data, col_settings)
                 for lay in sorted(data, key=lambda d: data[d][0]):
                     try:
                         right_pane.move(row, 0)
                         right_pane.clrtoeol()
                         right_pane.addstr(
-                            row, 0, f"{lay:{width}s}   {data[lay][0]:6.2f}   "
-                            f"{int(24000/data[lay][0]):3}   "
-                            f"{data[lay][1]:6.2%}")
+                            row, 0, f"{lay:{width}s}")
+                        right_pane.addstr( # avg_ms
+                            row, width+3, f"{data[lay][0]:6.2f}",
+                            pairs[0][lay])
+                        right_pane.addstr( # wpm
+                            row, width+12, f"{int(24000/data[lay][0]):3}",
+                            pairs[0][lay])
+                        right_pane.addstr( # exact
+                            row, width+18, f"{data[lay][1]:6.2%}",
+                            pairs[1][lay])
                         row += 1
                     except curses.error:
                         continue # list went off the screen
@@ -476,12 +462,12 @@ def main(stdscr: curses.window):
                         # cutting off the list like this lmao
                 right_pane.refresh()
             message(f"Ranking complete", gui_util.green)
-        elif command == "rt":
+        elif command == "rt": # uses full tristroke_analysis()
             reverse_opts = {"min": False, "max": True}
             analysis_opts = {"freq": 0, "exact": 1, "avg_ms": 2, "ms": 3}
             try:
                 reverse_ = reverse_opts[args[0]]
-                analysis_i = analysis_opts[args[1]]
+                sorting_col = analysis_opts[args[1]]
             except (KeyError, IndexError):
                 message("Usage: rt <min|max> <freq|exact|avg_ms|ms> [category]",
                     gui_util.red)
@@ -519,6 +505,13 @@ def main(stdscr: curses.window):
 
             data = {}
             csvdata = load_csv_data(active_speeds_file)
+
+            col_settings = ( # for colors
+                    {"transform": math.sqrt}, # freq
+                    {"transform": math.sqrt}, # exact
+                    {"worst": max, "best": min}, # avg_ms
+                    {"transform": math.sqrt, "worst": max, "best": min}, # ms
+                )
             
             for lay in layouts:
                 medians = get_medians_for_layout(csvdata, lay)
@@ -528,68 +521,30 @@ def main(stdscr: curses.window):
                 row = first_row
                 
                 # color calcs
-                pairs = [dict() for _ in range(4)] # tuple[dict[layname, pair]]
-                wb = [None for _ in range(4)]
-                # dict[layname, tuple]
-                stats = {layname: data[layname][category] for layname in data}
-                for i in (0,):
-                    wb[i] = (
-                        math.sqrt(min(val[i] for val in stats.values())),
-                        math.sqrt(max(val[i] for val in stats.values()))
-                    )
-                    for layname in stats:
-                        pairs[i][layname] = curses.color_pair(gui_util.color_scale(
-                            *wb[i], math.sqrt(stats[layname][i]), True
-                        ))
-                for i in (1,):
-                    wb[i] = (
-                        math.sqrt(min(val[i] for val in stats.values())),
-                        math.sqrt(max(val[i] for val in stats.values()))
-                    )
-                    for layname in stats:
-                        pairs[i][layname] = curses.color_pair(gui_util.color_scale(
-                            *wb[i], math.sqrt(stats[layname][i]), True
-                        ))
-                for i in (2,):
-                    wb[i] = (
-                        max(val[i] for val in stats.values()),
-                        min(val[i] for val in stats.values())
-                    )
-                    for layname in stats:
-                        pairs[i][layname] = curses.color_pair(gui_util.color_scale(
-                            *wb[i], stats[layname][i], True
-                        ))
-                for i in (3,):
-                    wb[i] = (
-                        math.sqrt(max(val[i] for val in stats.values())),
-                        math.sqrt(min(val[i] for val in stats.values()))
-                    )
-                    for layname in stats:
-                        pairs[i][layname] = curses.color_pair(gui_util.color_scale(
-                            *wb[i], math.sqrt(stats[layname][i]), True
-                        ))
+                rows = {layname: data[layname][category] for layname in data}
+                pairs = gui_util.apply_scales(rows, col_settings)
 
                 # printing
-                for lay in sorted(
-                        data, key=lambda d: data[d][category][analysis_i], 
+                for rowname in sorted(
+                        rows, key=lambda rowname: rows[rowname][sorting_col], 
                         reverse=reverse_):
                     try:
                         right_pane.move(row, 0)
                         right_pane.clrtoeol()
                         right_pane.addstr(
-                            row, 0, f"{lay:{width}s}   ")
+                            row, 0, f"{rowname:{width}s}   ")
                         right_pane.addstr( # freq
-                            row, width+3, f"{data[lay][category][0]:>6.2%}",
-                            pairs[0][lay])
-                        right_pane.addstr( # known_freq
-                            row, width+12, f"{data[lay][category][1]:>6.2%}",
-                            pairs[1][lay])
-                        right_pane.addstr( # speed
-                            row, width+21, f"{data[lay][category][2]:>6.1f}",
-                            pairs[2][lay])
-                        right_pane.addstr( # contrib
-                            row, width+29, f"{data[lay][category][3]:>6.2f}",
-                            pairs[3][lay])
+                            row, width+3, f"{rows[rowname][0]:>6.2%}",
+                            pairs[0][rowname])
+                        right_pane.addstr( # exact
+                            row, width+12, f"{rows[rowname][1]:>6.2%}",
+                            pairs[1][rowname])
+                        right_pane.addstr( # avg_ms
+                            row, width+21, f"{rows[rowname][2]:>6.1f}",
+                            pairs[2][rowname])
+                        right_pane.addstr( # ms
+                            row, width+29, f"{rows[rowname][3]:>6.2f}",
+                            pairs[3][rowname])
                         row += 1
                     except curses.error:
                         continue # list went off the screen

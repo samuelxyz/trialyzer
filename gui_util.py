@@ -1,4 +1,5 @@
 import curses
+from typing import Iterable, Type
 
 red = 1
 green = 2
@@ -45,6 +46,34 @@ def color_scale(worst, best, target, exclude_zeros = False):
         fraction = 0.999
     i = int(len(gradient_colors)*fraction)
     return gradient_colors[i]
+
+def apply_scales(rows: dict[str, Iterable], col_settings: Iterable[dict]):
+    """Applies scale to each column of a table and returns a result, which is 
+    accessed by result[col][rowname], giving the curses color pair for each 
+    entry in the table.
+
+    rows is a dict containing {rowname: (data0, data1, ..., dataN)}.
+    col_settings is of length N, each entry being a dict with the keywords:
+    "worst", "best", "scale_filter", "transform", "exclude_zeros". 
+    Defaults to min, max, lambda _: True, lambda x: x, True."""
+    pairs = [dict() for _ in range(len(col_settings))]
+    defaults = {"worst": min, "best": max, "scale_filter": lambda _: True, 
+        "transform": lambda x: x, "exclude_zeros": True}
+    for col, settings in enumerate(col_settings):
+        for key in defaults:
+            if key not in settings:
+                settings[key] = defaults[key]
+        worst = settings["transform"](
+            settings["worst"](val[col] for val in rows.values()
+                if settings["scale_filter"](val[col])))
+        best = settings["transform"](
+            settings["best"](val[col] for val in rows.values()
+                if settings["scale_filter"](val[col])))
+        for rowname in rows:
+            pairs[col][rowname] = curses.color_pair(color_scale(
+                worst, best, settings["transform"](rows[rowname][col]),
+                settings["exclude_zeros"]))
+    return pairs
 
 def insert_line_bottom(text: str, win: curses.window, attr: int = ...):
     """Scrolls a line in from the bottom of the window. 
