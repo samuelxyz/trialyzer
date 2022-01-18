@@ -7,6 +7,7 @@ import statistics
 import os
 import math
 import json
+from typing import Iterable
 
 from board import Coord
 from fingermap import Finger
@@ -604,6 +605,14 @@ def main(stdscr: curses.window):
                 message("The new file will be written upon save", gui_util.blue)
             save_session_settings()
         elif command in ("i", "improve"):
+            pins = []
+            if "pin" in args:
+                while True:
+                    token = args.pop()
+                    if token == "pin":
+                        break
+                    else:
+                        pins.append(token)
             if args:
                 layout_name = " ".join(args)
                 try:
@@ -623,7 +632,7 @@ def main(stdscr: curses.window):
             num_swaps = 0
             optimized = target_layout
             for optimized, score, swap in steepest_ascent(
-                    target_layout, tricatdata, medians):
+                    target_layout, tricatdata, medians, pins):
                 num_swaps += 1
                 repr_ = repr(optimized)
                 message(f"Swap #{num_swaps} ({swap[0]}, {swap[1]}) results "
@@ -659,7 +668,7 @@ def main(stdscr: curses.window):
                 "bs [bistroke]: Show specified/all bistroke stats",
                 "ts [tristroke]: Show specified/all tristroke stats",
                 "tsc [category]: Show tristroke category/total stats",
-                "i[mprove] [layout name]: Perform greedy optimization"
+                "i[mprove] [layout name] [pin <keys>]: Optimize layout"
             ]
             ymax = right_pane.getmaxyx()[0]
             for line in help_text:
@@ -721,7 +730,7 @@ def main(stdscr: curses.window):
                 ns = tuple(data[finger][1] for finger in list(Finger))
                 sworst = max(speeds)
                 sbest = min(filter(None, speeds))
-                nworst = min(ns)
+                nworst = min(filter(None, ns))
                 nbest = max(ns)
                     
                 for finglist in (lh_fingers, rh_fingers):
@@ -736,7 +745,7 @@ def main(stdscr: curses.window):
                             row+1, col, "{:>6}".format(
                                 data[Finger[finger]][1]),
                             curses.color_pair(gui_util.color_scale(
-                                nworst, nbest, data[Finger[finger]][1])))
+                                nworst, nbest, data[Finger[finger]][1], True)))
                         col += 7
                     row += 4
                 row += 3
@@ -1236,9 +1245,14 @@ def raw_summary_tristroke_analysis(
             total_freq += freq
     return (total_freq, known_freq, total_time)
 
-def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict):
+def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict,
+        pins: Iterable[str] = tuple()):
     lay = layout.Layout(layout_.name, False)
     lay.name += "-ascended"
+    
+    swappable = set(lay.keys.values())
+    for key in pins:
+        swappable.discard(key)
 
     with open("data/shai.json") as file:
         corpus = json.load(file)
@@ -1261,11 +1275,13 @@ def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict):
             #         best_time = swapped_time
             #         best_swap = swap
             #         best_data = data
-            swaps = itertools.combinations(lay.keys.values(), 2)
+            swaps = itertools.combinations(swappable, 2)
             args = ((swap, total_freq, known_freq, total_time, lay,
                      trigram_freqs, medians, tricatdata) 
                 for swap in swaps)
             datas = pool.starmap(swapped_score, args, 200)
+            if not len(datas):
+                return
             best = min(datas, key=lambda d: d[2]/d[0])
             best_swap = best[3]
             best_score = best[2]/best[0]
