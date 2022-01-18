@@ -44,6 +44,8 @@ qwerty = layout.get_layout("qwerty")
 # medians = get_medians_for_layout(csvdata, qwerty)
 # tricatdata = tristroke_category_data(medians)
 # data = summary_tristroke_analysis(qwerty, tricatdata, medians)
+n = 3
+keys = ("a", "b", "c")
 
 def stuff():
     # csvdata = load_csv_data("default")
@@ -52,7 +54,9 @@ def stuff():
     #     medians = get_medians_for_layout(csvdata, lay)
     #     tricatdata = tristroke_category_data(medians)
     #     summary_tristroke_analysis(lay, tricatdata, medians)
-    tuple(qwerty.all_nstrokes())
+    # set_1 = {nstroke for nstroke in qwerty.nstrokes_with_any_of(keys, n)} # 116
+    # set_2 = {nstroke for nstroke in qwerty.by_brute_force(keys, n)} # 235
+    pass
 
-n = 10
-print(timeit.timeit("stuff()", globals=globals(), number=n)/n * 1000)
+n_ = 10
+print(timeit.timeit("stuff()", globals=globals(), number=n_)/n_ * 1000)

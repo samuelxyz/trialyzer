@@ -1,5 +1,7 @@
+from calendar import leapdays
 import csv
 import itertools
+import multiprocessing
 import operator
 import statistics
 import os
@@ -25,15 +27,16 @@ def main(stdscr: curses.window):
         s_analysis_target = settings["analysis_target"]
         s_user_layout = settings["user_layout"]
         active_speeds_file = settings["active_speeds_file"]
+        analysis_target = layout.get_layout(s_analysis_target)
+        user_layout = layout.get_layout(s_user_layout)
         startup_messages.append(("Loaded user settings", gui_util.green))
     except (OSError, KeyError):
         s_analysis_target = "qwerty"
         s_user_layout = "qwerty"
         active_speeds_file = "default"
         startup_messages.append(("Using default user settings", gui_util.red))
-
-    analysis_target = layout.get_layout(s_analysis_target)
-    user_layout = layout.get_layout(s_user_layout)
+        analysis_target = layout.get_layout(s_analysis_target)
+        user_layout = layout.get_layout(s_user_layout)
     
     def startup_text(): 
         return [
@@ -600,6 +603,40 @@ def main(stdscr: curses.window):
             if not os.path.exists(f"data/{active_speeds_file}.csv"):
                 message("The new file will be written upon save", gui_util.blue)
             save_session_settings()
+        elif command in ("i", "improve"):
+            if args:
+                layout_name = " ".join(args)
+                try:
+                    target_layout = layout.get_layout(layout_name)
+                except OSError:
+                    message(f"/layouts/{layout_name} was not found.", 
+                            gui_util.red)
+                    continue
+            else:
+                target_layout = analysis_target
+            message("Using steepest ascent... >>>", gui_util.green)
+            
+            medians = get_medians_for_layout(
+                load_csv_data(active_speeds_file), target_layout)
+            tricatdata = tristroke_category_data(medians)
+
+            num_swaps = 0
+            optimized = target_layout
+            for optimized, score, swap in steepest_ascent(
+                    target_layout, tricatdata, medians):
+                num_swaps += 1
+                repr_ = repr(optimized)
+                message(f"Swap #{num_swaps} ({swap[0]}, {swap[1]}) results "
+                    f"in avg_ms = {score:.4f}\n"
+                    + repr_, win=right_pane)
+            message(f"Local optimum reached", gui_util.green, right_pane)
+            
+            if optimized is not target_layout:
+                with open(f"layouts/{optimized.name}", "w") as file:
+                        file.write(repr_)
+                message(
+                    f"Saved new layout as {optimized.name}",
+                    gui_util.green, right_pane)
         elif command in ("h", "help"):
             help_text = [
                 "",
@@ -617,10 +654,12 @@ def main(stdscr: curses.window):
                 "l[ayout] <layout name>: Set analysis target",
                 "a[nalyze] [layout name]: Detailed layout analysis",
                 "r[ank]: Rank all layouts by wpm",
-                "rt <min|max> <freq|exact|avg_ms|ms> [category]: Rank by tristroke statistic",
+                "rt <min|max> <freq|exact|avg_ms|ms> [category]: "
+                    "Rank by tristroke statistic",
                 "bs [bistroke]: Show specified/all bistroke stats",
                 "ts [tristroke]: Show specified/all tristroke stats",
                 "tsc [category]: Show tristroke category/total stats",
+                "i[mprove] [layout name]: Perform greedy optimization"
             ]
             ymax = right_pane.getmaxyx()[0]
             for line in help_text:
@@ -1169,7 +1208,15 @@ def summary_tristroke_analysis(layout: layout.Layout,
     with open("data/shai.json") as file:
         corpus = json.load(file)
 
-    trigram_freqs = corpus["trigrams"]
+    total_freq, known_freq, total_time = raw_summary_tristroke_analysis(
+        layout, tricatdata, medians, corpus["trigrams"]
+    )
+
+    return (total_time/total_freq, known_freq/total_freq)
+
+def raw_summary_tristroke_analysis(
+        layout: layout.Layout, tricatdata: dict, 
+        medians: dict, trigram_freqs: dict):
     total_freq = 0
     known_freq = 0
     total_time = 0
@@ -1187,8 +1234,93 @@ def summary_tristroke_analysis(layout: layout.Layout,
         finally:
             total_time += speed * freq
             total_freq += freq
+    return (total_freq, known_freq, total_time)
 
-    return (total_time/total_freq, known_freq/total_freq)
+def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict):
+    lay = layout.Layout(layout_.name, False)
+    lay.name += "_steepest_ascent"
+
+    with open("data/shai.json") as file:
+        corpus = json.load(file)
+    trigram_freqs = corpus["trigrams"]
+
+    total_freq, known_freq, total_time = raw_summary_tristroke_analysis(
+        lay, tricatdata, medians, trigram_freqs
+    )
+    
+    scores = [total_time/total_freq]
+    with multiprocessing.Pool(4) as pool:
+        while True:
+            # best_swap = None
+            # best_time = scores[-1]
+            # best_data = (total_freq, known_freq, total_time)
+            # for swap in itertools.combinations(lay.keys.values(), 2):
+            #     data = swapped_score(swap, total_freq, known_freq, total_time)
+            #     swapped_time = data[2]/data[0]
+            #     if swapped_time < best_time:
+            #         best_time = swapped_time
+            #         best_swap = swap
+            #         best_data = data
+            swaps = itertools.combinations(lay.keys.values(), 2)
+            args = ((swap, total_freq, known_freq, total_time, lay,
+                     trigram_freqs, medians, tricatdata) 
+                for swap in swaps)
+            datas = pool.starmap(swapped_score, args, 200)
+            best = min(datas, key=lambda d: d[2]/d[0])
+            best_swap = best[3]
+            best_time = best[2]/best[0]
+
+            if best_swap:
+                total_freq, known_freq, total_time = best[:3]
+                scores.append(best_time)
+                lay.swap(best_swap)
+                
+                yield lay, scores[-1], best_swap
+            else:
+                return
+
+def swapped_score(swap: tuple[str], total_freq, known_freq, total_time,
+    lay: layout.Layout, trigram_freqs: dict, medians: dict, tricatdata: dict):
+    # swaps should be length 2
+
+    def swapped_ngram(ngram):
+        swapped = []
+        for key in ngram:
+            if key == swap[0]:
+                swapped.append(swap[1])
+            elif key == swap[1]:
+                swapped.append(swap[0])
+            else:
+                swapped.append(key)
+        return tuple(swapped)
+    
+    for ngram in lay.ngrams_with_any_of(swap):
+        try:
+            freq = trigram_freqs["".join(ngram)]
+        except KeyError: # contains key not in corpus
+            continue
+        
+        tristroke = lay.to_nstroke(ngram)
+        try:
+            speed = medians[tristroke][2]
+            known_freq -= freq
+        except KeyError: # no entry in known medians
+            speed = tricatdata[tristroke_category(tristroke)][0]
+        finally:
+            total_time -= speed * freq
+            total_freq -= freq
+        
+        swapped_tristroke = lay.to_nstroke(swapped_ngram(ngram))
+        try:
+            speed = medians[swapped_tristroke][2]
+            known_freq += freq
+        except KeyError: # no entry in known medians
+            speed = tricatdata[tristroke_category(swapped_tristroke)][0]
+        finally:
+            total_time += speed * freq
+            total_freq += freq
+    
+    return (total_freq, known_freq, total_time, swap)
     
 if __name__ == "__main__":
     curses.wrapper(main)
