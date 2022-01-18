@@ -1,6 +1,0 @@
-fingermap: ansi_angle_prog
-board: ansi
-first_pos: TOP 1
-. y b w z x h i l o 
-a p t s v k m u r e ;
-n d g c f j ' , q / 
