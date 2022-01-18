@@ -1238,7 +1238,7 @@ def raw_summary_tristroke_analysis(
 
 def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict):
     lay = layout.Layout(layout_.name, False)
-    lay.name += "_steepest_ascent"
+    lay.name += "-ascended"
 
     with open("data/shai.json") as file:
         corpus = json.load(file)
@@ -1268,11 +1268,11 @@ def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict):
             datas = pool.starmap(swapped_score, args, 200)
             best = min(datas, key=lambda d: d[2]/d[0])
             best_swap = best[3]
-            best_time = best[2]/best[0]
+            best_score = best[2]/best[0]
 
-            if best_swap:
+            if best_score < scores[-1]:
                 total_freq, known_freq, total_time = best[:3]
-                scores.append(best_time)
+                scores.append(best_score)
                 lay.swap(best_swap)
                 
                 yield lay, scores[-1], best_swap

@@ -21,7 +21,8 @@ Features:
 - Autosuggest trigrams to use in the typing test to most effectively characterize a layout's common finger movements
 - Estimate the physical typing speed limit of each layout based on your typing data
 - Rank layouts by a large variety of different statistics
-- Custom layouts, fingermaps, and even physical board definitiens can be added in files
+- Custom layouts, fingermaps, and even physical board definitions can be added in files
+- Steepest-ascent layout optimization
 
 Planned:
 - Layout generation/optimization

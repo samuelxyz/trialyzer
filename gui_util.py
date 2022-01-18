@@ -63,12 +63,18 @@ def apply_scales(rows: dict[str, Iterable], col_settings: Iterable[dict]):
         for key in defaults:
             if key not in settings:
                 settings[key] = defaults[key]
+        if settings["exclude_zeros"]:
+            zeros_filter = lambda x: x != 0
+        else:
+            zeros_filter = lambda _: True
         worst = settings["transform"](
             settings["worst"](val[col] for val in rows.values()
-                if settings["scale_filter"](val[col])))
+                if settings["scale_filter"](val[col])
+                and zeros_filter(val[col])))
         best = settings["transform"](
             settings["best"](val[col] for val in rows.values()
-                if settings["scale_filter"](val[col])))
+                if settings["scale_filter"](val[col])
+                and zeros_filter(val[col])))
         for rowname in rows:
             pairs[col][rowname] = curses.color_pair(color_scale(
                 worst, best, settings["transform"](rows[rowname][col]),
