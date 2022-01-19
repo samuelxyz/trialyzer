@@ -25,7 +25,7 @@ Features:
 - Steepest-ascent layout optimization
 
 Planned:
-- Layout generation/optimization
+- Further generation/optimization
 - Heatmaps based on a variety of statistics
 - More fingermaps, boards, layouts
 - Alt fingering and sliding (maybe with some kind of customizable tag?)

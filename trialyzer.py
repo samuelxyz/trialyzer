@@ -497,14 +497,19 @@ def main(stdscr: curses.window):
                 {"transform": math.sqrt}, # exact
             )
 
+            num_displayed = ymax - first_row
+
             for lay in layouts:
                 medians = get_medians_for_layout(csvdata, lay)
                 tricatdata = tristroke_category_data(medians)
                 data[lay.name] = summary_tristroke_analysis(
                     lay, tricatdata, medians, trigram_freqs)
                 row = first_row
-                pairs = gui_util.apply_scales(data, col_settings)
-                for lay in sorted(data, key=lambda d: data[d][0]):
+                sorted_ = list(sorted(data, key=lambda d: data[d][0]))
+                displayed = {sorted_[i]: data[sorted_[i]] 
+                    for i in range(len(sorted_)) if i < num_displayed}
+                pairs = gui_util.apply_scales(displayed, col_settings)
+                for lay in sorted_:
                     try:
                         right_pane.move(row, 0)
                         right_pane.clrtoeol()
@@ -566,6 +571,7 @@ def main(stdscr: curses.window):
             right_pane.scroll(min(ymax-2, len(layout_file_list) + 1))
             right_pane.refresh()
             layouts = [layout.get_layout(name) for name in layout_file_list]
+            num_displayed = ymax - first_row
 
             data = {}
             csvdata = load_csv_data(active_speeds_file)
@@ -595,16 +601,19 @@ def main(stdscr: curses.window):
                     invert = this_avg > total_avg
                 except statistics.StatisticsError:
                     invert = False
-                rows = {layname: data[layname][category] for layname in data}
+                names = list(sorted(
+                    data, key=lambda name: data[name][category][sorting_col], 
+                    reverse=reverse_))
+                rows = {name: data[name][category] 
+                    for i, name in enumerate(names) if i < num_displayed}
                 if invert:
-                    pairs = gui_util.apply_scales(rows, col_settings_inverted)    
+                    pairs = gui_util.apply_scales(
+                        rows, col_settings_inverted)    
                 else:
                     pairs = gui_util.apply_scales(rows, col_settings)
 
                 # printing
-                for rowname in sorted(
-                        rows, key=lambda rowname: rows[rowname][sorting_col], 
-                        reverse=reverse_):
+                for rowname in rows:
                     try:
                         right_pane.move(row, 0)
                         right_pane.clrtoeol()
