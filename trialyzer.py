@@ -25,27 +25,79 @@ def main(stdscr: curses.window):
     try:
         with open("session_settings.json") as settings_file:
             settings = json.load(settings_file)
-        s_analysis_target = settings["analysis_target"]
-        s_user_layout = settings["user_layout"]
-        active_speeds_file = settings["active_speeds_file"]
-        analysis_target = layout.get_layout(s_analysis_target)
-        user_layout = layout.get_layout(s_user_layout)
+        some_default = False
+        try:
+            analysis_target = layout.get_layout(settings["analysis_target"])
+        except (OSError, KeyError):
+            analysis_target = layout.get_layout("qwerty")
+            some_default = True
+        try:
+            user_layout = layout.get_layout(settings["user_layout"])
+        except (OSError, KeyError):
+            user_layout = layout.get_layout("qwerty")
+            some_default = True
+        try:
+            active_speeds_file = settings["active_speeds_file"]
+        except KeyError:
+            active_speeds_file = "default"
+            some_default = True
+        try:
+            trigram_precision = int(settings["trigram_precision"])
+        except (KeyError, ValueError):
+            trigram_precision = 500
+            some_default = True
         startup_messages.append(("Loaded user settings", gui_util.green))
+        if some_default:
+            startup_messages.append((
+                "Set some missing/bad settings to default", gui_util.blue))
     except (OSError, KeyError):
-        s_analysis_target = "qwerty"
-        s_user_layout = "qwerty"
         active_speeds_file = "default"
+        analysis_target = layout.get_layout("qwerty")
+        user_layout = layout.get_layout("qwerty")
+        trigram_precision = 500
         startup_messages.append(("Using default user settings", gui_util.red))
-        analysis_target = layout.get_layout(s_analysis_target)
-        user_layout = layout.get_layout(s_user_layout)
+
+    def load_trigrams(trigram_precision: int):
+        with open("data/shai.json") as file:
+            corpus = json.load(file)
+        trigram_list = corpus["toptrigrams"]
+        if trigram_precision <= 0 or trigram_precision >= len(trigram_list):
+            trigram_precision = len(trigram_list)
+        trigram_freqs = dict()
+        included = 0
+        total = 0
+        for i, item in enumerate(trigram_list):
+            if i < trigram_precision:
+                trigram_freqs[item["Ngram"]] = item["Count"]
+                included += item["Count"]
+            total += item["Count"]
+
+        return trigram_freqs, included/total
     
-    def startup_text(): 
+    def save_session_settings():
+        with open("session_settings.json", "w") as settings_file:
+            json.dump(
+                {   "analysis_target": analysis_target.name,
+                    "user_layout": user_layout.name,
+                    "active_speeds_file": active_speeds_file,
+                    "trigram_precision": trigram_precision,
+                }, settings_file)
+
+    trigram_freqs, trigram_percent = load_trigrams(trigram_precision)
+    save_session_settings()
+    
+    def header_text(): 
+        if trigram_precision:
+            precision_text = f"{trigram_precision} most frequent"
+        else:
+            precision_text = "all"
         return [
             "\"h\" or \"help\" to show command list",
             f"Analysis target: {analysis_target}",
             f"User layout: {user_layout}",
             f"Active speeds file: {active_speeds_file}"
-            f" (/data/{active_speeds_file}.csv)"
+            f" (/data/{active_speeds_file}.csv)",
+            f"Trigrams used: {precision_text} ({trigram_percent:.3%})"
         ]
 
     curses.curs_set(0)
@@ -59,7 +111,7 @@ def main(stdscr: curses.window):
     content_win = stdscr.subwin(1, 0)
 
     height, width = content_win.getmaxyx()
-    startup_lines = len(startup_text())
+    startup_lines = len(header_text())
     message_win = content_win.derwin(
         height-startup_lines-2, int(width/3), startup_lines, 0)
     right_pane = content_win.derwin(
@@ -72,7 +124,7 @@ def main(stdscr: curses.window):
     input_box = curses.textpad.Textbox(input_win, True)
     
     typingtest_data = []
-
+    
     def message(msg: str, color: int = 0, win: curses.window = message_win):
         gui_util.insert_line_bottom(
             msg, win, curses.color_pair(color))
@@ -203,14 +255,6 @@ def main(stdscr: curses.window):
             row += 1
         
         right_pane.refresh()
-    
-    def save_session_settings():
-        with open("session_settings.json", "w") as settings_file:
-            json.dump(
-                {   "analysis_target": analysis_target.name,
-                    "user_layout": user_layout.name,
-                    "active_speeds_file": active_speeds_file,
-                }, settings_file)
 
     def scan_dir(path: str = "layouts/.", exclude: str = "."):
         file_list = []
@@ -244,7 +288,10 @@ def main(stdscr: curses.window):
         message(*item)
     
     while True:
-        content_win.addstr(0, 0, "\n".join(startup_text()))
+        for i in range(len(header_text())):
+            content_win.move(i, 0)
+            content_win.clrtoeol()
+        content_win.addstr(0, 0, "\n".join(header_text()))
         content_win.addstr(height-2, 0, "> ")
         content_win.refresh()
 
@@ -352,7 +399,7 @@ def main(stdscr: curses.window):
                 num_deleted = 0
             save_csv_data(csvdata, active_speeds_file)
             message(f"Deleted {num_deleted} data points for {' '.join(trigram)}")
-        elif command in ("l", "layout"):
+        elif command == "target":
             layout_name = " ".join(args)
             if layout_name: # set layout
                 try:
@@ -364,7 +411,19 @@ def main(stdscr: curses.window):
                     message(f"/layouts/{layout_name} was not found.", 
                             gui_util.red)
             else:
-                message("Usage: l[ayout] <layout name>", gui_util.red)
+                message("Usage: target <layout name>", gui_util.red)
+        elif command in ("l", "layout"):
+            layout_name = " ".join(args)
+            if layout_name:
+                try:
+                    message("\n"+ layout_name + "\n"
+                         + repr(layout.get_layout(layout_name)), win=right_pane)
+                except OSError:
+                    message(f"/layouts/{layout_name} was not found.", 
+                            gui_util.red)
+            else:
+                message("\n" + analysis_target.name + "\n"
+                     + repr(analysis_target), win=right_pane)
         elif command in ("u", "use"):
             layout_name = " ".join(args)
             if layout_name: # set layout
@@ -393,7 +452,8 @@ def main(stdscr: curses.window):
             medians = get_medians_for_layout(
                 load_csv_data(active_speeds_file), target_layout)
             tri_stats = tristroke_analysis(
-                target_layout, tristroke_category_data(medians), medians)
+                target_layout, tristroke_category_data(medians), 
+                medians, trigram_freqs)
             bi_stats = bistroke_analysis(
                 target_layout, bistroke_category_data(medians), medians)
             
@@ -441,7 +501,7 @@ def main(stdscr: curses.window):
                 medians = get_medians_for_layout(csvdata, lay)
                 tricatdata = tristroke_category_data(medians)
                 data[lay.name] = summary_tristroke_analysis(
-                    lay, tricatdata, medians)
+                    lay, tricatdata, medians, trigram_freqs)
                 row = first_row
                 pairs = gui_util.apply_scales(data, col_settings)
                 for lay in sorted(data, key=lambda d: data[d][0]):
@@ -523,7 +583,7 @@ def main(stdscr: curses.window):
                 medians = get_medians_for_layout(csvdata, lay)
                 tricatdata = tristroke_category_data(medians)
                 data[lay.name] = tristroke_analysis(
-                    lay, tricatdata, medians)
+                    lay, tricatdata, medians, trigram_freqs)
                 row = first_row
                 
                 # color freq by whether the category is faster than total
@@ -629,13 +689,18 @@ def main(stdscr: curses.window):
                 load_csv_data(active_speeds_file), target_layout)
             tricatdata = tristroke_category_data(medians)
 
+            initial_score = summary_tristroke_analysis(
+                target_layout, tricatdata, medians, trigram_freqs)[0]
+            message(f"\nInitial layout: avg_ms = {initial_score:.4f}\n"
+                + repr(target_layout), win=right_pane)
+            
             num_swaps = 0
             optimized = target_layout
             for optimized, score, swap in steepest_ascent(
-                    target_layout, tricatdata, medians, pins):
+                    target_layout, tricatdata, medians, trigram_freqs, pins):
                 num_swaps += 1
                 repr_ = repr(optimized)
-                message(f"Swap #{num_swaps} ({swap[0]}, {swap[1]}) results "
+                message(f"Swap #{num_swaps} ({swap[0]} {swap[1]}) results "
                     f"in avg_ms = {score:.4f}\n"
                     + repr_, win=right_pane)
             message(f"Local optimum reached", gui_util.green, right_pane)
@@ -646,6 +711,23 @@ def main(stdscr: curses.window):
                 message(
                     f"Saved new layout as {optimized.name}",
                     gui_util.green, right_pane)
+        elif command == "precision":
+            try:
+                trigram_precision = int(args[0])
+            except IndexError:
+                message("Usage: precision <n>\nOr use \"precision full\"",
+                    gui_util.red)
+                continue
+            except ValueError:
+                if args[0] == "full":
+                    trigram_precision = 0
+                else:
+                    message("Precision must be an integer", gui_util.red)
+                    continue
+            trigram_freqs, trigram_percent = load_trigrams(trigram_precision)
+            save_session_settings()
+            message(f"Set trigram precision to {args[0]} ({trigram_percent:.3%})", 
+                gui_util.green)
         elif command in ("h", "help"):
             help_text = [
                 "",
@@ -653,6 +735,9 @@ def main(stdscr: curses.window):
                 "Command <required thing> [optional thing] option1|option2",
                 "------General commands------",
                 "h[elp]: Show this list",
+                "reload [layout name]: Reload layout(s) from files",
+                "precision <n|full>: Analyze using the top n trigrams, or all",
+                "l[ayout] [layout name]: View layout",
                 "q[uit]",
                 "----Typing data commands----",
                 "u[se] <layout name>: Set layout used in typing test",
@@ -660,7 +745,7 @@ def main(stdscr: curses.window):
                 "c[lear] <trigram>: Erase data for trigram",
                 "df [filename]: Set typing data file, or use default",
                 "-----Analysis commands-----",
-                "l[ayout] <layout name>: Set analysis target",
+                "target <layout name>: Set analysis target",
                 "a[nalyze] [layout name]: Detailed layout analysis",
                 "r[ank]: Rank all layouts by wpm",
                 "rt <min|max> <freq|exact|avg_ms|ms> [category]: "
@@ -752,6 +837,32 @@ def main(stdscr: curses.window):
             
             right_pane.refresh()
             input_win.move(0,0)
+        elif command == "reload":
+            if args:
+                layout_name = " ".join(args)
+                try:
+                    layout.Layout.loaded[layout_name] = layout.Layout(
+                        layout_name)
+                    message(f"Reloaded {layout_name} >>>", gui_util.green)
+                    message(f"\n{layout_name}\n"
+                        + repr(layout.get_layout(layout_name)),
+                        win=right_pane)
+                except OSError:
+                    message(f"/layouts/{layout_name} was not found.", 
+                            gui_util.red)
+                    continue
+            else:
+                for layout_name in layout.Layout.loaded:
+                    try:
+                        layout.Layout.loaded[layout_name] = layout.Layout(
+                            layout_name)
+                    except OSError:
+                        del layout.Layout.loaded[layout_name]
+                message("Reloaded all layouts", gui_util.green)
+            # If either of these were deleted just let it crash lol
+            # too lazy to deal with that
+            user_layout = layout.get_layout(user_layout.name)
+            analysis_target = layout.get_layout(analysis_target.name)
         # Debug commands
         elif command == "debug":
             gui_util.debug_win(message_win, "message_win")
@@ -1153,7 +1264,8 @@ def bistroke_analysis(layout: layout.Layout, bicatdata: dict, medians: dict):
     
     return stats
 
-def tristroke_analysis(layout: layout.Layout, tricatdata: dict, medians: dict):
+def tristroke_analysis(layout: layout.Layout, tricatdata: dict, medians: dict,
+    trigram_freqs: dict):
     """Returns dict[category, (freq_prop, known_prop, speed, contribution)]
     
     tricatdata is the output of tristroke_category_data(). That is,
@@ -1161,10 +1273,6 @@ def tristroke_analysis(layout: layout.Layout, tricatdata: dict, medians: dict):
     
     medians is the output of get_medians_for_layout(). That is, 
     dict[Tristroke, (float, float, float)]"""
-    with open("data/shai.json") as file:
-        corpus = json.load(file)
-
-    trigram_freqs = corpus["trigrams"]
     # {category: [total_time, exact_freq, total_freq]}
     by_category = {category: [0,0,0] for category in all_tristroke_categories}
     for trigram in trigram_freqs:
@@ -1208,18 +1316,16 @@ def tristroke_analysis(layout: layout.Layout, tricatdata: dict, medians: dict):
     
     return stats
 
-def summary_tristroke_analysis(layout: layout.Layout, 
-                            tricatdata: dict, medians: dict):
+def summary_tristroke_analysis(
+        layout: layout.Layout, tricatdata: dict, medians: dict, 
+        trigram_freqs: dict):
     """Like tristroke_analysis but instead of breaking down by category, only
     calculates stats for the "total" category.
     
     Returns (speed, known_prop)"""
-    with open("data/shai.json") as file:
-        corpus = json.load(file)
 
     total_freq, known_freq, total_time = raw_summary_tristroke_analysis(
-        layout, tricatdata, medians, corpus["trigrams"]
-    )
+        layout, tricatdata, medians, trigram_freqs)
 
     return (total_time/total_freq, known_freq/total_freq)
 
@@ -1245,18 +1351,14 @@ def raw_summary_tristroke_analysis(
             total_freq += freq
     return (total_freq, known_freq, total_time)
 
-def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict,
-        pins: Iterable[str] = tuple()):
+def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict, 
+        trigram_freqs: dict, pins: Iterable[str] = tuple()):
     lay = layout.Layout(layout_.name, False)
     lay.name += "-ascended"
     
     swappable = set(lay.keys.values())
     for key in pins:
         swappable.discard(key)
-
-    with open("data/shai.json") as file:
-        corpus = json.load(file)
-    trigram_freqs = corpus["trigrams"]
 
     total_freq, known_freq, total_time = raw_summary_tristroke_analysis(
         lay, tricatdata, medians, trigram_freqs

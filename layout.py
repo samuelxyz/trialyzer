@@ -90,11 +90,14 @@ class Layout:
         first_col = min(pos.col for pos in self.keys)
         last_row = max(pos.row for pos in self.keys)
         last_col = max(pos.col for pos in self.keys)
-        rows = [
-            f"fingermap: {self.fingermap.name}",
-            f"board: {self.board.name}",
-            f"first_pos: {fingermap.Row(first_row).name} {first_col}",
-        ]
+        rows = []
+        if self.fingermap.name != "traditional":
+            rows.append(f"fingermap: {self.fingermap.name}")
+        if self.board.name != "ansi":
+            rows.append(f"board: {self.board.name}")
+        if first_row != fingermap.Row.TOP.value or first_col != 1:
+            rows.append(
+                f"first_pos: {fingermap.Row(first_row).name} {first_col}")
         for row in range(first_row, last_row+1):
             keys = []
             for col in range(first_col, last_col+1):
