@@ -93,6 +93,17 @@ category_display_names = {
     "sfr.": "sfr",
     "sfs.": "sfs"
 }
+hand_names = {
+    "R": "right hand total",
+    "L": "left hand total",
+}
+finger_names = {
+    "T": "thumb total",
+    "I": "index total",
+    "M": "middle total",
+    "R": "ring total",
+    "P": "pinky total"
+}
 
 def applicable_function(target_category: str):
     """Given a target category, returns a function(category: str) which tells

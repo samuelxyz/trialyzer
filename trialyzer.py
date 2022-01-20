@@ -256,6 +256,63 @@ def main(stdscr: curses.window):
         
         right_pane.refresh()
 
+    def print_finger_stats(stats: dict):
+        # colors
+        col_settings = (
+            {"transform": math.sqrt},
+            {"transform": math.sqrt},
+            {"transform": math.sqrt},
+            {"worst": max, "best": min},
+            {"transform": math.sqrt, "worst": max, "best": min},
+         )
+        pairs = gui_util.apply_scales(stats, col_settings)
+
+        categories = []
+        for hand in ("R", "L"):
+            categories.append(hand_names[hand])
+        for finger in ("T", "I", "M", "R", "P"):
+            categories.append(finger_names[finger])
+        for finger in Finger:
+            categories.append(finger.name)
+
+        longest = len(max(categories, key=len)) + 2
+
+        header_line = (
+                "-" * (longest-6) +
+                " letter stats | tristroke stats ----------------"
+                "\nCategory" + " " * (longest-8) + 
+                "   freq |   freq    exact   avg_ms      ms"
+        )
+
+        gui_util.insert_line_bottom(header_line, right_pane)
+        right_pane.scroll(len(stats))
+        ymax = right_pane.getmaxyx()[0]
+        row = ymax - len(stats)
+
+        # printing
+        for category in categories:
+            right_pane.addstr( # category name
+                row, 0, f"{category:<{longest}}")
+            right_pane.addstr( # lfreq
+                row, longest+1, f"{stats[category][0]:>6.2%}",
+                pairs[0][category])
+            right_pane.addstr(row, longest+8, "|")
+            right_pane.addstr( # tfreq
+                row, longest+10, f"{stats[category][1]:>6.2%}",
+                pairs[1][category])
+            right_pane.addstr( # known
+                row, longest+19, f"{stats[category][2]:>6.2%}",
+                pairs[2][category])
+            right_pane.addstr( # avg_ms
+                row, longest+28, f"{stats[category][3]:>6.1f}",
+                pairs[3][category])
+            right_pane.addstr( # ms
+                row, longest+36, f"{stats[category][4]:>6.2f}",
+                pairs[4][category])
+            row += 1
+        
+        right_pane.refresh()
+
     def scan_dir(path: str = "layouts/.", exclude: str = "."):
         file_list = []
         with os.scandir(path) as files:
@@ -474,6 +531,28 @@ def main(stdscr: curses.window):
                 "\nBistroke categories          freq    exact   avg_ms      ms")
             print_analysis_stats(tri_stats, tri_header_line)
             print_analysis_stats(bi_stats, bi_header_line)
+        elif command in ("f", "fingers"):
+            if args:
+                layout_name = " ".join(args)
+                try:
+                    target_layout = layout.get_layout(layout_name)
+                except OSError:
+                    message(f"/layouts/{layout_name} was not found.", 
+                            gui_util.red)
+                    continue
+            else:
+                target_layout = analysis_target
+            message("Crunching the numbers >>>", gui_util.green)
+            message_win.refresh()
+            
+            medians = get_medians_for_layout(
+                load_csv_data(active_speeds_file), target_layout)
+            finger_stats = finger_analysis(
+                target_layout, tristroke_category_data(medians), 
+                medians, trigram_freqs)
+            gui_util.insert_line_bottom("\nHand/finger breakdown for "
+                f"{target_layout}", right_pane)
+            print_finger_stats(finger_stats)
         elif command in ("r", "rank"): # uses summary_tristroke_analysis()
             layout_file_list = scan_dir()
             if not layout_file_list:
@@ -756,6 +835,7 @@ def main(stdscr: curses.window):
                 "-----Analysis commands-----",
                 "target <layout name>: Set analysis target",
                 "a[nalyze] [layout name]: Detailed layout analysis",
+                "f[ingers] [layout name]: Hand/finger usage breakdown",
                 "r[ank]: Rank all layouts by wpm",
                 "rt <min|max> <freq|exact|avg_ms|ms> [category]: "
                     "Rank by tristroke statistic",
@@ -1359,6 +1439,69 @@ def raw_summary_tristroke_analysis(
             total_time += speed * freq
             total_freq += freq
     return (total_freq, known_freq, total_time)
+
+def finger_analysis(layout: layout.Layout, tricatdata: dict, medians: dict,
+    trigram_freqs: dict):
+    """Returns dict[finger, (freq, exact, avg_ms, ms)]
+    
+    tricatdata is the output of tristroke_category_data(). That is,
+    dict[category: string, (speed: float, num_samples: int)]
+    
+    medians is the output of get_medians_for_layout(). That is, 
+    dict[Tristroke, (float, float, float)]"""
+    # {category: [cat_tfreq, known_tfreq, cat_ttime, lfreq]}
+    with open("data/shai.json") as file:
+        corpdata = json.load(file)
+    letter_freqs = corpdata["letters"]
+    total_lfreq = 0
+    raw_stats = {finger.name: [0,0,0,0] for finger in Finger}
+    raw_stats.update({hand_names[hand]: [0,0,0,0] for hand in hand_names})
+    raw_stats.update({finger_names[fingcat]: [0,0,0,0] for fingcat in finger_names})
+    for key in layout.keys.values():
+        try:
+            total_lfreq += letter_freqs[key]
+        except KeyError:
+            continue
+        finger = layout.fingers[key].name
+        raw_stats[finger][3] += letter_freqs[key]
+        if finger == Finger.UNKNOWN.name:
+            continue
+        raw_stats[hand_names[finger[0]]][3] += letter_freqs[key]
+        raw_stats[finger_names[finger[1]]][3] += letter_freqs[key]
+    total_tfreq = 0
+    for trigram in trigram_freqs:
+        try:
+            tristroke: Tristroke = layout.to_nstroke(trigram)
+        except KeyError: # contains key not in layout
+            continue
+        tfreq = trigram_freqs[trigram]
+        total_tfreq += tfreq
+        cats = set()
+        for finger in tristroke.fingers:
+            cats.add(finger.name)
+            if finger != Finger.UNKNOWN:
+                cats.add(hand_names[finger.name[0]])
+                cats.add(finger_names[finger.name[1]])
+        try:
+            speed = medians[tristroke][2]
+            for cat in cats:
+                raw_stats[cat][1] += tfreq
+        except KeyError: # no entry in known medians
+            speed = tricatdata[tristroke_category(tristroke)][0]
+        finally:
+            for cat in cats:
+                raw_stats[cat][2] += speed * tfreq
+                raw_stats[cat][0] += tfreq
+    processed = {}
+    for cat in raw_stats:
+        processed[cat] = (
+            raw_stats[cat][3]/total_lfreq if total_lfreq else 0,
+            raw_stats[cat][0]/total_tfreq if total_tfreq else 0, 
+            raw_stats[cat][1]/raw_stats[cat][0] if raw_stats[cat][0] else 0,
+            raw_stats[cat][2]/raw_stats[cat][0] if raw_stats[cat][0] else 0,
+            raw_stats[cat][2]/total_tfreq if total_tfreq else 0, 
+        )
+    return processed
 
 def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict, 
         trigram_freqs: dict, pins: Iterable[str] = tuple()):
