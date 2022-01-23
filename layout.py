@@ -1,4 +1,5 @@
 import itertools
+import json
 from typing import Iterable
 import threading
 
@@ -21,10 +22,7 @@ class Layout:
         with open("layouts/" + name) as file:
             self.build_from_string(file.read())
         if preprocess:
-            self.preprocessors["counts"] = threading.Thread(
-                target=calculate_counts_wrapper, args=(self,), daemon=True)
-            for name in self.preprocessors:
-                self.preprocessors[name].start()
+            self.start_preprocessing()
 
     def build_from_string(self, s: str):
         rows = []
@@ -80,6 +78,12 @@ class Layout:
                 for instance in all_tristroke_categories:
                     if applicable(instance):
                         self.counts[category] += self.counts[instance]
+    
+    def start_preprocessing(self):
+        self.preprocessors["counts"] = threading.Thread(
+            target=calculate_counts_wrapper, args=(self,), daemon=True)
+        for name in self.preprocessors:
+            self.preprocessors[name].start()
     
     def __str__(self) -> str:
         return (self.name + " (" + self.fingermap.name + ", " 
@@ -178,6 +182,27 @@ class Layout:
             self.fingers[keys[0]], self.fingers[keys[1]])
         self.coords[keys[1]], self.coords[keys[0]] = (
             self.coords[keys[0]], self.coords[keys[1]])
+
+    def finger_letter_frequency(
+            self, fingers: Iterable[fingermap.Finger], lfreqs = ...):
+        if lfreqs == ...:
+            with open("data/shai.json") as file:
+                corp_data = json.load(file)
+            lfreqs = corp_data["letters"]
+        fingers = tuple(fingers)
+        of_interest_lfreq = 0
+        total_lfreq = 0
+        for finger in self.fingermap.cols:
+            for pos in self.fingermap.cols[finger]:
+                try:
+                    key = self.keys[pos]
+                    lfreq = lfreqs[key]
+                except KeyError:
+                    continue
+                total_lfreq += lfreq
+                if finger in fingers:
+                    of_interest_lfreq += lfreq
+        return of_interest_lfreq/total_lfreq if total_lfreq else 0
 
 def get_layout(name: str) -> Layout:
     if name not in Layout.loaded:

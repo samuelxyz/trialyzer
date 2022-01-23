@@ -753,6 +753,13 @@ def main(stdscr: curses.window):
                 message("The new file will be written upon save", gui_util.blue)
             save_session_settings()
         elif command in ("i", "improve"):
+            pinky_cap = 0.18 # reasonable default
+            for item in args:
+                try:
+                    pinky_cap = float(item)
+                    args.remove(item)
+                except ValueError:
+                    continue
             pins = []
             if "pin" in args:
                 while True:
@@ -785,7 +792,9 @@ def main(stdscr: curses.window):
             num_swaps = 0
             optimized = target_layout
             for optimized, score, swap in steepest_ascent(
-                    target_layout, tricatdata, medians, trigram_freqs, pins):
+                target_layout, tricatdata, medians, trigram_freqs, pins,
+                pinky_cap
+            ):
                 num_swaps += 1
                 repr_ = repr(optimized)
                 message(f"Swap #{num_swaps} ({swap[0]} {swap[1]}) results "
@@ -797,8 +806,14 @@ def main(stdscr: curses.window):
                 with open(f"layouts/{optimized.name}", "w") as file:
                         file.write(repr_)
                 message(
-                    f"Saved new layout as {optimized.name}",
+                    f"Saved new layout as {optimized.name}\n"
+                    "Set as analysis target",
                     gui_util.green, right_pane)
+                # reload from file in case
+                layout.Layout.loaded[optimized.name] = layout.Layout(
+                    optimized.name)
+                analysis_target = layout.get_layout(optimized.name)
+                save_session_settings()
         elif command == "precision":
             try:
                 trigram_precision = int(args[0])
@@ -824,7 +839,8 @@ def main(stdscr: curses.window):
                 "------General commands------",
                 "h[elp]: Show this list",
                 "reload [layout name]: Reload layout(s) from files",
-                "precision <n|full>: Analyze using the top n trigrams, or all",
+                "precision <n|full>:"
+                    "Analyze using the top n trigrams, or all",
                 "l[ayout] [layout name]: View layout",
                 "q[uit]",
                 "----Typing data commands----",
@@ -842,7 +858,8 @@ def main(stdscr: curses.window):
                 "bs [bistroke]: Show specified/all bistroke stats",
                 "ts [tristroke]: Show specified/all tristroke stats",
                 "tsc [category]: Show tristroke category/total stats",
-                "i[mprove] [layout name] [pin <keys>]: Optimize layout"
+                "i[mprove] [layout name] [pinky cap] [pin <keys>]: "
+                    "Optimize layout"
             ]
             ymax = right_pane.getmaxyx()[0]
             for line in help_text:
@@ -1504,7 +1521,9 @@ def finger_analysis(layout: layout.Layout, tricatdata: dict, medians: dict,
     return processed
 
 def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict, 
-        trigram_freqs: dict, pins: Iterable[str] = tuple()):
+        trigram_freqs: dict, pins: Iterable[str] = tuple(), 
+        pinky_cap: float = 1.0):
+    """pinky_cap is max letter freq. Layouts can get weird without it."""
     lay = layout.Layout(layout_.name, False)
     lay.name += "-ascended"
     
@@ -1515,6 +1534,14 @@ def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict,
     total_freq, known_freq, total_time = raw_summary_tristroke_analysis(
         lay, tricatdata, medians, trigram_freqs
     )
+
+    with open("data/shai.json") as file:
+        corp_data = json.load(file)
+    lfreqs = corp_data["letters"]
+
+    initial_pinky_freq = lay.finger_letter_frequency((Finger.RP, Finger.LP))
+    if pinky_cap < initial_pinky_freq:
+        pinky_cap = initial_pinky_freq
     
     scores = [total_time/total_freq]
     with multiprocessing.Pool(4) as pool:
@@ -1531,12 +1558,16 @@ def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict,
             #         best_data = data
             swaps = itertools.combinations(swappable, 2)
             args = ((swap, total_freq, known_freq, total_time, lay,
-                     trigram_freqs, medians, tricatdata) 
+                     trigram_freqs, medians, tricatdata, lfreqs) 
                 for swap in swaps)
             datas = pool.starmap(swapped_score, args, 200)
-            if not len(datas):
-                return
-            best = min(datas, key=lambda d: d[2]/d[0])
+            try:
+                best = min(
+                    filter(lambda d: d[4] <= pinky_cap, datas),
+                    key=lambda d: d[2]/d[0]
+                )
+            except ValueError:
+                return # no swaps exist
             best_swap = best[3]
             best_score = best[2]/best[0]
 
@@ -1547,10 +1578,12 @@ def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict,
                 
                 yield lay, scores[-1], best_swap
             else:
-                return
+                return # no swaps are good
 
-def swapped_score(swap: tuple[str], total_freq, known_freq, total_time,
-    lay: layout.Layout, trigram_freqs: dict, medians: dict, tricatdata: dict):
+def swapped_score(
+        swap: tuple[str], total_freq, known_freq, total_time,
+        lay: layout.Layout, trigram_freqs: dict, medians: dict,
+        tricatdata: dict, lfreqs: dict):
     # swaps should be length 2
 
     def swapped_ngram(ngram):
@@ -1566,31 +1599,49 @@ def swapped_score(swap: tuple[str], total_freq, known_freq, total_time,
     
     for ngram in lay.ngrams_with_any_of(swap):
         try:
-            freq = trigram_freqs["".join(ngram)]
+            tfreq = trigram_freqs["".join(ngram)]
         except KeyError: # contains key not in corpus
             continue
         
         tristroke = lay.to_nstroke(ngram)
         try:
             speed = medians[tristroke][2]
-            known_freq -= freq
+            known_freq -= tfreq
         except KeyError: # no entry in known medians
             speed = tricatdata[tristroke_category(tristroke)][0]
         finally:
-            total_time -= speed * freq
-            total_freq -= freq
+            total_time -= speed * tfreq
+            total_freq -= tfreq
         
         swapped_tristroke = lay.to_nstroke(swapped_ngram(ngram))
         try:
             speed = medians[swapped_tristroke][2]
-            known_freq += freq
+            known_freq += tfreq
         except KeyError: # no entry in known medians
             speed = tricatdata[tristroke_category(swapped_tristroke)][0]
         finally:
-            total_time += speed * freq
-            total_freq += freq
+            total_time += speed * tfreq
+            total_freq += tfreq
+        
+    # pinky usage is calculated because otherwise layouts can get ridiculous
+    pinky_lfreq = 0
+    total_lfreq = 0
+    for finger in lay.fingermap.cols:
+        for pos in lay.fingermap.cols[finger]:
+            try:
+                key = lay.keys[pos]
+                if key == swap[0]:
+                    key = swap[1]
+                elif key == swap[1]:
+                    key = swap[0]
+                lfreq = lfreqs[key]
+            except KeyError:
+                continue
+            total_lfreq += lfreq
+            if finger in (Finger.RP, Finger.LP):
+                pinky_lfreq += lfreq
     
-    return (total_freq, known_freq, total_time, swap)
+    return (total_freq, known_freq, total_time, swap, pinky_lfreq/total_lfreq)
     
 if __name__ == "__main__":
     curses.wrapper(main)
