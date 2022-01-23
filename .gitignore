@@ -3,5 +3,6 @@
 /.vscode
 /data/*.csv
 /layouts/*-ascended
+/layouts/*-best
 session_settings.json
 todo

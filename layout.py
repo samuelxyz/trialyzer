@@ -2,6 +2,7 @@ import itertools
 import json
 from typing import Iterable
 import threading
+import random
 
 import board
 import fingermap
@@ -11,7 +12,12 @@ class Layout:
 
     loaded = dict() # dict of layouts
 
-    def __init__(self, name: str, preprocess: bool = True) -> None:
+    def __init__(
+            self, name: str, preprocess: bool = True, 
+            repr_: str = "") -> None:
+        """Pass in repr_ to build the layout directly from it. Otherwise, 
+        the layout will be built from the file at layouts/<name>. Raises
+        OSError if no repr is provided and no file is found."""
         self.name = name
         self.keys = {} # dict[Pos, str]
         self.positions = {} # dict[str, Pos]
@@ -19,8 +25,11 @@ class Layout:
         self.coords = {} # dict[str, Coord]
         self.counts = {category: 0 for category in all_tristroke_categories}
         self.preprocessors = {}
-        with open("layouts/" + name) as file:
-            self.build_from_string(file.read())
+        if repr_:
+            self.build_from_string(repr_)
+        else:
+            with open("layouts/" + name) as file:
+                self.build_from_string(file.read())
         if preprocess:
             self.start_preprocessing()
 
@@ -182,6 +191,14 @@ class Layout:
             self.fingers[keys[0]], self.fingers[keys[1]])
         self.coords[keys[1]], self.coords[keys[0]] = (
             self.coords[keys[0]], self.coords[keys[1]])
+
+    def shuffle(self, swaps: int = 100, pins: Iterable[str] = tuple()):
+        keys = set(self.keys.values())
+        for key in pins:
+            keys.discard(key)
+        random.seed()
+        for _ in range(swaps):
+            self.swap(random.sample(keys, k=2))
 
     def finger_letter_frequency(
             self, fingers: Iterable[fingermap.Finger], lfreqs = ...):

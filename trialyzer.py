@@ -758,6 +758,7 @@ def main(stdscr: curses.window):
                 try:
                     pinky_cap = float(item)
                     args.remove(item)
+                    break
                 except ValueError:
                     continue
             pins = []
@@ -814,6 +815,101 @@ def main(stdscr: curses.window):
                     optimized.name)
                 analysis_target = layout.get_layout(optimized.name)
                 save_session_settings()
+        elif command in ("si",):
+            num_iterations = 10 # reasonable default
+            for item in args:
+                try:
+                    num_iterations = int(item)
+                    args.remove(item)
+                    break
+                except ValueError:
+                    continue
+            pinky_cap = 0.18 # reasonable default
+            for item in args:
+                try:
+                    pinky_cap = float(item)
+                    args.remove(item)
+                    break
+                except ValueError:
+                    continue
+            pins = []
+            if "pin" in args:
+                while True:
+                    token = args.pop()
+                    if token == "pin":
+                        break
+                    else:
+                        pins.append(token)
+            if args:
+                layout_name = " ".join(args)
+                try:
+                    target_layout = layout.get_layout(layout_name)
+                except OSError:
+                    message(f"/layouts/{layout_name} was not found.", 
+                            gui_util.red)
+                    continue
+            else:
+                target_layout = analysis_target
+            pin_positions = {key: target_layout.positions[key] for key in pins}
+            try: # load existing best if present
+                working_lay = layout.Layout(target_layout.name + "-best", False)
+            except OSError:
+                working_lay = layout.Layout(target_layout.name, False)
+            for key in pin_positions:
+                if pin_positions[key] != working_lay.positions[key]:
+                    working_lay = layout.Layout(target_layout.name, False)
+                    break
+            message("Shuffling & ascending... >>>", gui_util.green)
+            
+            medians = get_medians_for_layout(
+                load_csv_data(active_speeds_file), working_lay)
+            tricatdata = tristroke_category_data(medians)
+
+            best_score = summary_tristroke_analysis(
+                    working_lay, tricatdata, medians, trigram_freqs)[0]
+            message(f"Initial best: avg_ms = {best_score:.4f}\n"
+                    + repr(working_lay), win=right_pane)
+
+            for iteration in range(num_iterations):
+                working_lay.shuffle(pins=pins)
+                while working_lay.finger_letter_frequency(
+                        (Finger.LP, Finger.RP)) > pinky_cap:
+                    working_lay.shuffle(pins=pins)
+                initial_score = summary_tristroke_analysis(
+                    working_lay, tricatdata, medians, trigram_freqs)[0]
+                message(f"\nShuffle/Attempt {iteration}\n"
+                    f"Initial shuffle: avg_ms = {initial_score:.4f}\n"
+                    + repr(working_lay), win=right_pane)
+                
+                num_swaps = 0
+                optimized = working_lay
+                for optimized, score, swap in steepest_ascent(
+                    working_lay, tricatdata, medians, trigram_freqs, pins,
+                    pinky_cap, "-best"
+                ):
+                    num_swaps += 1
+                    repr_ = repr(optimized)
+                    message(
+                        f"Swap #{iteration}.{num_swaps} ({swap[0]} {swap[1]})"
+                        f" results in avg_ms = {score:.4f}\n"
+                        + repr_, win=right_pane)
+                message(f"Local optimum reached", gui_util.green, right_pane)
+                
+                if optimized is not working_lay and score < best_score:
+                    message(
+                        f"New best score of {score:.4f}\n"
+                        f"Saved as layouts/{optimized.name}", 
+                        gui_util.green, right_pane)
+                    best_score = score
+                    with open(f"layouts/{optimized.name}", "w") as file:
+                            file.write(repr_)
+            message("\nSet as analysis target",
+                gui_util.green, right_pane)
+            # reload from file in case
+            layout.Layout.loaded[optimized.name] = layout.Layout(
+                optimized.name)
+            analysis_target = layout.get_layout(optimized.name)
+            save_session_settings()
         elif command == "precision":
             try:
                 trigram_precision = int(args[0])
@@ -859,7 +955,9 @@ def main(stdscr: curses.window):
                 "ts [tristroke]: Show specified/all tristroke stats",
                 "tsc [category]: Show tristroke category/total stats",
                 "i[mprove] [layout name] [pinky cap] [pin <keys>]: "
-                    "Optimize layout"
+                    "Optimize layout",
+                "si [layout name] [n] [pinky cap] [pin <keys>]: "
+                    "Shuffle and attempt optimization n times"
             ]
             ymax = right_pane.getmaxyx()[0]
             for line in help_text:
@@ -1522,10 +1620,11 @@ def finger_analysis(layout: layout.Layout, tricatdata: dict, medians: dict,
 
 def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict, 
         trigram_freqs: dict, pins: Iterable[str] = tuple(), 
-        pinky_cap: float = 1.0):
+        pinky_cap: float = 1.0, suffix: str = "-ascended"):
     """pinky_cap is max letter freq. Layouts can get weird without it."""
-    lay = layout.Layout(layout_.name, False)
-    lay.name += "-ascended"
+    lay = layout.Layout(layout_.name, False, repr(layout_))
+    if not lay.name.endswith(suffix):
+        lay.name += suffix
     
     swappable = set(lay.keys.values())
     for key in pins:
