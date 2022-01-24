@@ -975,8 +975,10 @@ def main(stdscr: curses.window):
                     f"" + repr_, win=right_pane)
             i = 1
             path = f"layouts/{optimized.name}"
+            original_name = optimized.name
             while os.path.exists(path):
-                path = f"layouts/{optimized.name}-{i}"
+                optimized.name = f"{original_name}-{i}"
+                path = f"layouts/{optimized.name}"
                 i += 1
             with open(path, "w") as file:
                     file.write(repr_)
