@@ -4,5 +4,6 @@
 /data/*.csv
 /layouts/*-ascended
 /layouts/*-best
+/layouts/*-anneal*
 session_settings.json
 todo

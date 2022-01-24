@@ -1,8 +1,8 @@
-from calendar import leapdays
 import csv
 import itertools
 import multiprocessing
 import operator
+import random
 import statistics
 import os
 import math
@@ -906,6 +906,84 @@ def main(stdscr: curses.window):
             message("\nSet as analysis target",
                 gui_util.green, right_pane)
             # reload from file in case
+            try:
+                layout.Layout.loaded[optimized.name] = layout.Layout(
+                    optimized.name)
+                analysis_target = layout.get_layout(optimized.name)
+                save_session_settings()
+            except OSError: # no improvement found
+                continue
+        elif command in ("anneal",):
+            num_iterations = 10000 # reasonable default
+            for item in args:
+                try:
+                    num_iterations = int(item)
+                    args.remove(item)
+                    break
+                except ValueError:
+                    continue
+            pinky_cap = 0.18 # reasonable default
+            for item in args:
+                try:
+                    pinky_cap = float(item)
+                    args.remove(item)
+                    break
+                except ValueError:
+                    continue
+            pins = []
+            if "pin" in args:
+                while True:
+                    token = args.pop()
+                    if token == "pin":
+                        break
+                    else:
+                        pins.append(token)
+            if args:
+                layout_name = " ".join(args)
+                try:
+                    target_layout = layout.get_layout(layout_name)
+                except OSError:
+                    message(f"/layouts/{layout_name} was not found.", 
+                            gui_util.red)
+                    continue
+            else:
+                target_layout = analysis_target
+            
+            message("Annealing... >>>", gui_util.green)
+            
+            medians = get_medians_for_layout(
+                load_csv_data(active_speeds_file), target_layout)
+            tricatdata = tristroke_category_data(medians)
+
+            initial_score = summary_tristroke_analysis(
+                target_layout, tricatdata, medians, trigram_freqs)[0]
+            message(
+                f"Initial score: avg_ms = {initial_score:.4f}\n"
+                + repr(target_layout), win=right_pane)
+            
+            
+            optimized = target_layout
+            for optimized, i, temperature, delta, score, swap in anneal(
+                target_layout, tricatdata, medians, trigram_freqs, pins,
+                pinky_cap, "-annealed", num_iterations
+            ):
+                repr_ = repr(optimized)
+                message(
+                    f"{i/num_iterations:.2%} progress, "
+                    f"temperature = {temperature:.4f}, delta = {delta:.4f}\n"
+                    f"Swapped ({swap[0]} {swap[1]}), avg_ms = {score:.4f}\n"
+                    f"" + repr_, win=right_pane)
+            i = 1
+            path = f"layouts/{optimized.name}"
+            while os.path.exists(path):
+                path = f"layouts/{optimized.name}-{i}"
+                i += 1
+            with open(path, "w") as file:
+                    file.write(repr_)
+            message(
+                f"Annealing complete\nSaved as {path}"
+                "\nSet as analysis target", 
+                gui_util.green, right_pane)
             layout.Layout.loaded[optimized.name] = layout.Layout(
                 optimized.name)
             analysis_target = layout.get_layout(optimized.name)
@@ -954,10 +1032,14 @@ def main(stdscr: curses.window):
                 "bs [bistroke]: Show specified/all bistroke stats",
                 "ts [tristroke]: Show specified/all tristroke stats",
                 "tsc [category]: Show tristroke category/total stats",
+                "tgc [category] [with <fingers>] [without <fingers>]: "
+                    "Show trigram category/total stats",
                 "i[mprove] [layout name] [pinky cap] [pin <keys>]: "
                     "Optimize layout",
                 "si [layout name] [n] [pinky cap] [pin <keys>]: "
-                    "Shuffle and attempt optimization n times"
+                    "Shuffle and attempt optimization n times",
+                "anneal [layout name] [n] [pinky cap] [pin <keys>]: "
+                    "Optimize with simulated annealing"
             ]
             ymax = right_pane.getmaxyx()[0]
             for line in help_text:
@@ -1041,6 +1123,96 @@ def main(stdscr: curses.window):
             
             right_pane.refresh()
             input_win.move(0,0)
+        elif command == "tgc":
+            with_fingers = set()
+            without_fingers = set()
+            try:
+                for i in reversed(range(len(args))):
+                    if args[i] == "with":
+                        for _ in range(len(args)-i):
+                            with_fingers.add(Finger[args.pop()])
+                        args.pop() # remove "with"
+                    elif args[i] == "without":
+                        for _ in range(len(args)-i):
+                            without_fingers.add(Finger[args.pop()])
+                        args.pop() # remove "without"
+            except KeyError:
+                message("Usage:\n"
+                    "tgc [category] [with <fingers>] [without <fingers>]",
+                    gui_util.red)
+                continue
+            if not with_fingers:
+                with_fingers = set(Finger)
+            if not args:
+                category = ""
+            else:
+                category = parse_category(args[0])
+                if category is None:
+                    continue
+                        
+            message("Crunching the numbers >>>", gui_util.green)
+            stats = trigrams_with_specifications(
+                get_medians_for_layout(
+                    load_csv_data(active_speeds_file), analysis_target), 
+                trigram_freqs, analysis_target, 
+                category, with_fingers, without_fingers
+            )
+            overall = stats.pop("")
+            display_name = (category_display_names[category] 
+                if category in category_display_names else category)
+
+            header = (
+                f"Category: {display_name}",
+                f"With: {' '.join(f.name for f in with_fingers)}",
+                f"Without: {' '.join(f.name for f in without_fingers)}",
+                "Overall:",
+                "          freq   avg_ms       ms",
+                "       {:>6.2%}   {:>6.1f}  {:>6.2f}".format(*overall)
+            )
+            message("\n".join(header), win=right_pane)
+
+            col_settings = [ # for colors
+                {"transform": math.sqrt}, # freq
+                {"worst": max, "best": min}, # avg_ms
+                {"transform": math.sqrt, "worst": max, "best": min}, # ms
+            ]
+            pairs = gui_util.apply_scales(stats, col_settings)
+
+            num_rows = right_pane.getmaxyx()[0] - len(header)
+            rows_each = int(num_rows/3) - 3
+            first_row = right_pane.getmaxyx()[0] - rows_each
+            best_trigrams = sorted(stats, key=lambda t: stats[t][1])
+            worst_trigrams = sorted(
+                stats, key=lambda t: stats[t][2], reverse=True)
+            frequent_trigrams = sorted(
+                stats, key=lambda t: stats[t][0], reverse=True)
+            width = len(max(stats, key=lambda t: len(t)))
+            for list_, listname in zip(
+                    (best_trigrams, worst_trigrams, frequent_trigrams),
+                    ("Fastest:", "Worst:", "Most frequent:")):
+                message(f"\n{listname}\n" + " "*width + 
+                    "     freq   avg_ms       ms", win=right_pane)
+                if len(list_) > rows_each:
+                    list_ = list_[:rows_each]
+                right_pane.scroll(rows_each)
+                row = first_row
+                for tg in list_:
+                    right_pane.move(row, 0)
+                    right_pane.clrtoeol()
+                    right_pane.addstr(
+                        row, 0, f"{tg:{width}s}   ")
+                    right_pane.addstr( # freq
+                        row, width+3, f"{stats[tg][0]:>6.2%}",
+                        pairs[0][tg])
+                    right_pane.addstr( # avg_ms
+                        row, width+12, f"{stats[tg][1]:>6.1f}",
+                        pairs[1][tg])
+                    right_pane.addstr( # ms
+                        row, width+21, f"{stats[tg][2]:>6.2f}",
+                        pairs[2][tg])
+                    row += 1
+            right_pane.refresh()
+            
         elif command == "reload":
             if args:
                 layout_name = " ".join(args)
@@ -1394,6 +1566,58 @@ def data_for_tristroke_category(category: str, medians: dict):
     
     return (speed, num_samples, with_fingers, without_fingers)
 
+def trigrams_with_specifications_raw(
+        medians: dict, trigram_freqs: dict, layout_: layout.Layout, 
+        category: str, 
+        with_fingers: set[Finger] = set(Finger), 
+        without_fingers: set[Finger] = set()):
+    """Returns dict[trigram_tuple, (total_freq, total_time)]"""
+    applicable = applicable_function(category)
+    result = {"": [0,0]} # total_freq, total_time
+    for tristroke in medians:
+        if with_fingers.isdisjoint(tristroke.fingers):
+            continue
+        reject = False
+        for finger in tristroke.fingers:
+            if finger in without_fingers:
+                reject = True
+                break
+        if reject:
+            continue
+        cat = tristroke_category(tristroke)
+        if not applicable(cat):
+            continue
+        trigram = layout_.to_ngram(tristroke)
+        try:
+            freq = trigram_freqs["".join(trigram)]
+        except KeyError:
+            continue
+        speed = medians[tristroke][2]
+        for key in ("", trigram):
+            try:
+                result[key][0] += freq
+                result[key][1] += speed*freq
+            except KeyError:
+                result[key] = [freq, speed*freq]
+    return result
+
+def trigrams_with_specifications(
+        medians: dict, trigram_freqs: dict, layout_: layout.Layout, 
+        category: str, 
+        with_fingers: set[Finger] = set(Finger), 
+        without_fingers: set[Finger] = set()):
+    """Returns dict[trigram_str, (freq, avg_ms, ms)]"""
+    raw = trigrams_with_specifications_raw(
+            medians, trigram_freqs, layout_, category, 
+            with_fingers, without_fingers)
+    result = dict()
+    for key in raw:
+        freq = raw[key][0]/raw[""][0] if raw[""][0] else 0
+        avg_ms = raw[key][1]/raw[key][0] if raw[key][0] else 0
+        ms = raw[key][1]/raw[""][0] if raw[""][0] else 0
+        result[" ".join(key)] = (freq, avg_ms, ms)
+    return result
+
 def bistroke_analysis(layout: layout.Layout, bicatdata: dict, medians: dict):
     """Returns dict[category, (freq_prop, known_prop, speed, contribution)]
     
@@ -1684,6 +1908,7 @@ def swapped_score(
         lay: layout.Layout, trigram_freqs: dict, medians: dict,
         tricatdata: dict, lfreqs: dict):
     # swaps should be length 2
+    """(total_freq, known_freq, total_time, swap, pinky%)"""
 
     def swapped_ngram(ngram):
         swapped = []
@@ -1741,6 +1966,64 @@ def swapped_score(
                 pinky_lfreq += lfreq
     
     return (total_freq, known_freq, total_time, swap, pinky_lfreq/total_lfreq)
+
+def anneal(layout_: layout.Layout, tricatdata: dict, medians: dict, 
+        trigram_freqs: dict, pins: Iterable[str] = tuple(), 
+        pinky_cap: float = 1.0, suffix: str = "-annealed", 
+        iterations: int = 10000):
+    """pinky_cap is max letter freq. Layouts can get weird without it.
+    
+    Returns (layout, i, temperature, delta, score, swap) 
+    when a swap is successful."""
+    lay = layout.Layout(layout_.name, False, repr(layout_))
+    if not lay.name.endswith(suffix):
+        lay.name += suffix
+    
+    swappable = set(lay.keys.values())
+    for key in pins:
+        swappable.discard(key)
+    swappable = tuple(swappable)
+
+    total_freq, known_freq, total_time = raw_summary_tristroke_analysis(
+        lay, tricatdata, medians, trigram_freqs
+    )
+
+    with open("data/shai.json") as file:
+        corp_data = json.load(file)
+    lfreqs = corp_data["letters"]
+
+    initial_pinky_freq = lay.finger_letter_frequency((Finger.RP, Finger.LP))
+    if pinky_cap < initial_pinky_freq:
+        pinky_cap = initial_pinky_freq
+    
+    scores = [total_time/total_freq]
+    T0 = 5
+    Tf = 1e-3
+    k = math.log(T0/Tf)
+
+    random.seed()
+    for i in range(iterations):
+        temperature = T0*math.exp(-k*i/iterations)
+        swap = random.sample(swappable, k=2)
+        data = swapped_score(swap, total_freq, known_freq, total_time,
+            lay, trigram_freqs, medians, tricatdata, lfreqs)
+        score = data[2]/data[0]
+        delta = score - scores[-1]
+        
+        if data[4] > pinky_cap:
+            continue
+
+        if score > scores[-1]:
+            p = math.exp(-delta/temperature)
+            if random.random() > p:
+                continue
+
+        total_freq, known_freq, total_time = data[:3]
+        scores.append(score)
+        lay.swap(swap)
+        
+        yield lay, i, temperature, delta, scores[-1], swap
+    return
     
 if __name__ == "__main__":
     curses.wrapper(main)
