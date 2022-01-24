@@ -7,6 +7,7 @@ import statistics
 import os
 import math
 import json
+import time
 from typing import Iterable
 
 from board import Coord
@@ -167,8 +168,8 @@ def main(stdscr: curses.window):
                     completion[category] = 0
             for category in data:
                 p_pairs[category] = curses.color_pair(gui_util.color_scale(
-                    min(completion.values()), max(completion.values()),
-                    completion[category]))
+                    min(filter(None, completion.values())), max(completion.values()),
+                    completion[category], True))
                 c_pairs[category] = curses.color_pair(gui_util.color_scale(
                     cmin, cmax, log_counts[category], True))
         else:
@@ -961,12 +962,16 @@ def main(stdscr: curses.window):
                 f"Initial score: avg_ms = {initial_score:.4f}\n"
                 + repr(target_layout), win=right_pane)
             
-            
+            last_time = -1
             optimized = target_layout
             for optimized, i, temperature, delta, score, swap in anneal(
                 target_layout, tricatdata, medians, trigram_freqs, pins,
                 pinky_cap, "-annealed", num_iterations
             ):
+                current_time = time.perf_counter()
+                if current_time - last_time < 0.5:
+                    continue
+                last_time = current_time
                 repr_ = repr(optimized)
                 message(
                     f"{i/num_iterations:.2%} progress, "
@@ -981,7 +986,7 @@ def main(stdscr: curses.window):
                 path = f"layouts/{optimized.name}"
                 i += 1
             with open(path, "w") as file:
-                    file.write(repr_)
+                    file.write(repr(optimized))
             message(
                 f"Annealing complete\nSaved as {path}"
                 "\nSet as analysis target", 
@@ -1169,7 +1174,7 @@ def main(stdscr: curses.window):
                 f"Without: {' '.join(f.name for f in without_fingers)}",
                 "Overall:",
                 "          freq   avg_ms       ms",
-                "       {:>6.2%}   {:>6.1f}  {:>6.2f}".format(*overall)
+                "       {:>6.2%}   {:>6.1f}   {:>6.2f}".format(*overall)
             )
             message("\n".join(header), win=right_pane)
 
@@ -1212,6 +1217,10 @@ def main(stdscr: curses.window):
                     right_pane.addstr( # ms
                         row, width+21, f"{stats[tg][2]:>6.2f}",
                         pairs[2][tg])
+                    right_pane.addstr( # category
+                        row, width+30, 
+                        tristroke_category(analysis_target.to_nstroke(
+                            tuple(tg.split(" ")))))
                     row += 1
             right_pane.refresh()
             
@@ -1230,12 +1239,15 @@ def main(stdscr: curses.window):
                             gui_util.red)
                     continue
             else:
+                to_delete = []
                 for layout_name in layout.Layout.loaded:
                     try:
                         layout.Layout.loaded[layout_name] = layout.Layout(
                             layout_name)
                     except OSError:
-                        del layout.Layout.loaded[layout_name]
+                        to_delete.append(layout_name)
+                for layout_name in to_delete:
+                    del layout.Layout.loaded[layout_name]
                 message("Reloaded all layouts", gui_util.green)
             # If either of these were deleted just let it crash lol
             # too lazy to deal with that
@@ -1999,7 +2011,7 @@ def anneal(layout_: layout.Layout, tricatdata: dict, medians: dict,
         pinky_cap = initial_pinky_freq
     
     scores = [total_time/total_freq]
-    T0 = 5
+    T0 = 10
     Tf = 1e-3
     k = math.log(T0/Tf)
 

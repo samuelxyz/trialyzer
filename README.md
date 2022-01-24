@@ -22,7 +22,7 @@ Features:
 - Estimate the physical typing speed limit of each layout based on your typing data
 - Rank layouts by a large variety of different statistics
 - Custom layouts, fingermaps, and even physical board definitions can be added in files
-- Steepest-ascent layout optimization
+- Layout optimization by simulated annealing and steepest ascent
 
 Planned:
 - Further generation/optimization
