@@ -2,6 +2,7 @@
 /__pycache__
 /.vscode
 /data/*.csv
+/output/*
 /layouts/*-ascended
 /layouts/*-best
 /layouts/*-anneal*

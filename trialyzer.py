@@ -124,8 +124,6 @@ def main(stdscr: curses.window):
     input_win = content_win.derwin(height-2, 2)
     input_box = curses.textpad.Textbox(input_win, True)
     
-    typingtest_data = []
-    
     def message(msg: str, color: int = 0, win: curses.window = message_win):
         gui_util.insert_line_bottom(
             msg, win, curses.color_pair(color))
@@ -342,6 +340,971 @@ def main(stdscr: curses.window):
             message("Unrecognized category", gui_util.red)
             return None     
 
+    def cmd_type():
+        if not args: # autosuggest trigram
+            # Choose the most frequent trigram from the least completed 
+            # category of the analysis target layout
+            with open("data/shai.json") as file:
+                corpus = json.load(file)
+            trigram_list = corpus["toptrigrams"]
+            medians = get_medians_for_layout(
+                load_csv_data(active_speeds_file), analysis_target)
+            catdata = tristroke_category_data(medians)
+            analysis_target.preprocessors["counts"].join()
+            counts = analysis_target.counts
+            completion = {}
+            for cat in catdata:
+                if cat.startswith(".") or cat.endswith(".") or cat == "":
+                    continue
+                n = catdata[cat][1]
+                completion[cat] = n/counts[cat] if n > 0 else 0
+
+            ruled_out = {analysis_target.to_ngram(tristroke)
+                for tristroke in medians} # already have data
+            trigram = None
+
+            def find_from_best_cat():
+                if not completion:
+                    return None
+                best_cat = min(completion, key = lambda cat: completion[cat])
+                # trigram_list is sorted by descending frequency
+                for entry in trigram_list:
+                    ng = tuple(key for key in entry["Ngram"])
+                    if ng in ruled_out:
+                        continue
+                    try:
+                        tristroke = analysis_target.to_nstroke(ng)
+                    except KeyError: # contains key not in layout
+                        continue
+                    if tristroke_category(tristroke) == best_cat:
+                        ruled_out.add(ng)
+                        if user_layout.to_ngram(tristroke): # keys exist
+                            return tristroke
+                # if we get to this point, 
+                # there was no compatible trigram in the category
+                # Check next best category
+                del completion[best_cat]
+                return find_from_best_cat()
+            
+            tristroke = find_from_best_cat()
+            trigram = user_layout.to_ngram(tristroke)
+            if not tristroke:
+                message("Unable to autosuggest - all compatible trigrams"
+                    " between the user layout and analysis target"
+                    " already have data", gui_util.red)
+                return
+            else:
+                fingers = tuple(finger.name for finger in tristroke.fingers)
+                message(f"Autosuggesting trigram {' '.join(trigram)}\n"
+                    f"({analysis_target.name} "
+                    f"{' '.join(analysis_target.to_ngram(tristroke))})\n"
+                    "Be sure to use {} {} {}".format(*fingers),
+                    gui_util.blue)
+        elif len(args) == 3:
+            tristroke = user_layout.to_nstroke(args)
+        elif len(args) == 1 and len(args[0]) == 3:
+            tristroke = user_layout.to_nstroke(args[0])
+        else:
+            message("Malformed trigram", gui_util.red)
+            return
+        csvdata = load_csv_data(active_speeds_file)
+        if tristroke in csvdata:
+            message(
+                f"Note: this tristroke already has "
+                f"{len(csvdata[tristroke][0])} data points",
+                gui_util.blue)
+        message("Starting typing test >>>", gui_util.green)
+        typingtest.test(right_pane, tristroke, user_layout, csvdata)
+        input_win.clear()
+        save_csv_data(csvdata, active_speeds_file)
+        message("Typing data saved", gui_util.green)
+    
+    def cmd_clear():
+        if len(args) == 3:
+            trigram = tuple(args)
+        elif len(args) == 1 and len(args[0]) == 3:
+            trigram = args[0]
+        else:
+            message("Usage: c[lear] <trigram>", gui_util.red)
+            return
+        csvdata = load_csv_data(active_speeds_file)
+        tristroke = user_layout.to_nstroke(trigram)
+        try:
+            num_deleted = len(csvdata.pop(tristroke)[0])
+        except KeyError:
+            num_deleted = 0
+        save_csv_data(csvdata, active_speeds_file)
+        message(f"Deleted {num_deleted} data points for {' '.join(trigram)}")
+
+    def cmd_target():
+        layout_name = " ".join(args)
+        nonlocal analysis_target
+        if layout_name: # set layout
+            try:
+                analysis_target = layout.get_layout(layout_name)
+                message("Set " + layout_name + " as the analysis target.",
+                        gui_util.green)
+                save_session_settings()
+            except OSError:
+                message(f"/layouts/{layout_name} was not found.", 
+                        gui_util.red)
+        else:
+            message("Usage: target <layout name>", gui_util.red)
+
+    def cmd_layout():
+        layout_name = " ".join(args)
+        if layout_name:
+            try:
+                message("\n"+ layout_name + "\n"
+                        + repr(layout.get_layout(layout_name)), win=right_pane)
+            except OSError:
+                message(f"/layouts/{layout_name} was not found.", 
+                        gui_util.red)
+        else:
+            message("\n" + analysis_target.name + "\n"
+                    + repr(analysis_target), win=right_pane)
+
+    def cmd_use():
+        layout_name = " ".join(args)
+        if layout_name: # set layout
+            try:
+                nonlocal user_layout
+                user_layout = layout.get_layout(layout_name)
+                message("Set " + layout_name + " as the user layout.",
+                        gui_util.green)
+                save_session_settings()
+            except OSError:
+                message(f"/layouts/{layout_name} was not found.", 
+                        gui_util.red)
+
+    def cmd_analyze():
+        if args:
+            layout_name = " ".join(args)
+            try:
+                target_layout = layout.get_layout(layout_name)
+            except OSError:
+                message(f"/layouts/{layout_name} was not found.", 
+                        gui_util.red)
+                return
+        else:
+            target_layout = analysis_target
+        message("Crunching the numbers >>>", gui_util.green)
+        message_win.refresh()
+        
+        medians = get_medians_for_layout(
+            load_csv_data(active_speeds_file), target_layout)
+        tri_stats = tristroke_analysis(
+            target_layout, tristroke_category_data(medians), 
+            medians, trigram_freqs)
+        bi_stats = bistroke_analysis(
+            target_layout, bistroke_category_data(medians), medians)
+        
+        tri_ms = tri_stats[""][2]
+        tri_wpm = int(24000/tri_ms)
+        bi_ms = bi_stats[""][2]
+        bi_wpm = int(12000/bi_ms)
+
+        gui_util.insert_line_bottom(f"\nLayout: {target_layout}", right_pane)
+        gui_util.insert_line_bottom(
+            f"Overall {tri_ms:.1f} ms per trigram ({tri_wpm} wpm)", right_pane)
+        gui_util.insert_line_bottom(
+            f"Overall {bi_ms:.1f} ms per bigram ({bi_wpm} wpm)", right_pane)
+        
+        tri_header_line = (
+            "\nTristroke categories         freq    exact   avg_ms      ms")
+        bi_header_line = (
+            "\nBistroke categories          freq    exact   avg_ms      ms")
+        print_analysis_stats(tri_stats, tri_header_line)
+        print_analysis_stats(bi_stats, bi_header_line)
+
+    def cmd_fingers():
+        if args:
+            layout_name = " ".join(args)
+            try:
+                target_layout = layout.get_layout(layout_name)
+            except OSError:
+                message(f"/layouts/{layout_name} was not found.", 
+                        gui_util.red)
+                return
+        else:
+            target_layout = analysis_target
+        message("Crunching the numbers >>>", gui_util.green)
+        message_win.refresh()
+        
+        medians = get_medians_for_layout(
+            load_csv_data(active_speeds_file), target_layout)
+        finger_stats = finger_analysis(
+            target_layout, tristroke_category_data(medians), 
+            medians, trigram_freqs)
+        gui_util.insert_line_bottom("\nHand/finger breakdown for "
+            f"{target_layout}", right_pane)
+        print_finger_stats(finger_stats)
+
+    def cmd_rank():
+        output = False
+        if "output" in args:
+            args.remove("output")
+            output = True
+        layout_file_list = scan_dir()
+        if not layout_file_list:
+            message("No layouts found in /layouts/", gui_util.red)
+            return
+        message(f"Analyzing {len(layout_file_list)} layouts >>>", gui_util.green)
+        layouts = [layout.get_layout(name) for name in layout_file_list]
+        data = {}
+        csvdata = load_csv_data(active_speeds_file)
+        width = max(len(name) for name in layout_file_list)
+        gui_util.insert_line_bottom(
+            "\nLayout" + " "*(width-3) + "avg_ms   wpm    exact", right_pane)
+        ymax = right_pane.getmaxyx()[0]
+        first_row = ymax - len(layouts) - 2
+        if first_row < 1:
+            first_row = 1
+        right_pane.scroll(min(ymax-1, len(layouts) + 2))
+
+        col_settings = (
+            {"transform": math.sqrt, "worst": max, "best": min}, # avg_ms
+            {"transform": math.sqrt}, # exact
+        )
+
+        num_displayed = ymax - first_row
+
+        for lay in layouts:
+            medians = get_medians_for_layout(csvdata, lay)
+            tricatdata = tristroke_category_data(medians)
+            data[lay.name] = summary_tristroke_analysis(
+                lay, tricatdata, medians, trigram_freqs)
+            row = first_row
+            sorted_ = list(sorted(data, key=lambda d: data[d][0]))
+            displayed = {sorted_[i]: data[sorted_[i]] 
+                for i in range(len(sorted_)) if i < num_displayed}
+            pairs = gui_util.apply_scales(displayed, col_settings)
+            for lay in sorted_:
+                try:
+                    right_pane.move(row, 0)
+                    right_pane.clrtoeol()
+                    right_pane.addstr(
+                        row, 0, f"{lay:{width}s}")
+                    right_pane.addstr( # avg_ms
+                        row, width+3, f"{data[lay][0]:6.2f}",
+                        pairs[0][lay])
+                    right_pane.addstr( # wpm
+                        row, width+12, f"{int(24000/data[lay][0]):3}",
+                        pairs[0][lay])
+                    right_pane.addstr( # exact
+                        row, width+18, f"{data[lay][1]:6.2%}",
+                        pairs[1][lay])
+                    row += 1
+                except curses.error:
+                    continue # list went off the screen
+                    # TODO something better than just 
+                    # cutting off the list like this lmao
+            right_pane.refresh()
+        message(f"Ranking complete", gui_util.green)
+        if output:
+            header = ["name", "avg_ms", "exact"]
+            base_path = "output/ranking"
+            path_ = base_path
+            i = 1
+            while os.path.exists(f"{path_}.csv"):
+                path_ = f"{base_path}-{i}"
+                i += 1
+            with open(f"{path_}.csv", "w", newline="") as csvfile:
+                w = csv.writer(csvfile)
+                w.writerow(header)
+                for lay in layouts:
+                    row = [lay.name]
+                    row.extend(data[lay.name])
+                    row.extend(repr(lay).split("\n"))
+                    w.writerow(row)
+            message(f"Saved ranking as {path_}.csv", gui_util.green)
+
+    def cmd_rt():
+        reverse_opts = {"min": False, "max": True}
+        analysis_opts = {"freq": 0, "exact": 1, "avg_ms": 2, "ms": 3}
+        try:
+            reverse_ = reverse_opts[args[0]]
+            sorting_col = analysis_opts[args[1]]
+        except (KeyError, IndexError):
+            message("Usage: rt <min|max> <freq|exact|avg_ms|ms> [category]",
+                gui_util.red)
+            return
+        try:
+            category = parse_category(args[2])
+            if category is None:
+                return
+        except IndexError:
+            category = ""
+        category_name = (category_display_names[category] 
+            if category in category_display_names else category)
+        if category.endswith(".") or not category:
+            category_name += " (total) "
+
+        layout_file_list = scan_dir()
+        if not layout_file_list:
+            message("No layouts found in /layouts/", gui_util.red)
+            return
+        message(f"Analyzing {len(layout_file_list)} layouts >>>",
+            gui_util.green)
+        width = max(len(name) for name in layout_file_list)
+        gui_util.insert_line_bottom(
+            f"\nRanking by tristroke category: {category_name}, "
+            f"{args[0]} {args[1]} first"
+            "\nLayout" + " "*(width-1) 
+            + "freq    exact   avg_ms      ms", right_pane)
+        ymax = right_pane.getmaxyx()[0]
+        first_row = ymax - len(layout_file_list) - 3
+        if first_row < 2:
+            first_row = 2
+        right_pane.scroll(min(ymax-2, len(layout_file_list) + 1))
+        right_pane.refresh()
+        layouts = [layout.get_layout(name) for name in layout_file_list]
+        num_displayed = ymax - first_row
+
+        data = {}
+        csvdata = load_csv_data(active_speeds_file)
+
+        col_settings = [ # for colors
+            {"transform": math.sqrt}, # freq
+            {"transform": math.sqrt}, # exact
+            {"worst": max, "best": min}, # avg_ms
+            {"transform": math.sqrt, "worst": max, "best": min}, # ms
+        ]
+        col_settings_inverted = col_settings.copy()
+        col_settings_inverted[0] = col_settings_inverted[3]
+        
+        for lay in layouts:
+            medians = get_medians_for_layout(csvdata, lay)
+            tricatdata = tristroke_category_data(medians)
+            data[lay.name] = tristroke_analysis(
+                lay, tricatdata, medians, trigram_freqs)
+            row = first_row
+            
+            # color freq by whether the category is faster than total
+            try:
+                this_avg = statistics.mean(
+                    data[layname][category][2] for layname in data)
+                total_avg = statistics.mean(
+                    data[layname][""][2] for layname in data)
+                invert = this_avg > total_avg
+            except statistics.StatisticsError:
+                invert = False
+            names = list(sorted(
+                data, key=lambda name: data[name][category][sorting_col], 
+                reverse=reverse_))
+            rows = {name: data[name][category] 
+                for i, name in enumerate(names) if i < num_displayed}
+            if invert:
+                pairs = gui_util.apply_scales(
+                    rows, col_settings_inverted)    
+            else:
+                pairs = gui_util.apply_scales(rows, col_settings)
+
+            # printing
+            for rowname in rows:
+                try:
+                    right_pane.move(row, 0)
+                    right_pane.clrtoeol()
+                    right_pane.addstr(
+                        row, 0, f"{rowname:{width}s}   ")
+                    right_pane.addstr( # freq
+                        row, width+3, f"{rows[rowname][0]:>6.2%}",
+                        pairs[0][rowname])
+                    right_pane.addstr( # exact
+                        row, width+12, f"{rows[rowname][1]:>6.2%}",
+                        pairs[1][rowname])
+                    right_pane.addstr( # avg_ms
+                        row, width+21, f"{rows[rowname][2]:>6.1f}",
+                        pairs[2][rowname])
+                    right_pane.addstr( # ms
+                        row, width+29, f"{rows[rowname][3]:>6.2f}",
+                        pairs[3][rowname])
+                    row += 1
+                except curses.error:
+                    continue # list went off the screen
+                    # TODO something better than just 
+                    # cutting off the list like this lmao
+            right_pane.refresh()
+        message(f"Ranking complete", gui_util.green)
+
+    def cmd_bistroke():
+        if not args:
+            message("Crunching the numbers >>>", gui_util.green)
+            message_win.refresh()
+            right_pane.clear()
+            data = bistroke_category_data(get_medians_for_layout(
+                load_csv_data(active_speeds_file), analysis_target))
+            print_stroke_categories(data)
+        else:
+            message("Individual bistroke stats are"
+                " not yet implemented", gui_util.red)
+
+    def cmd_tristroke():
+        if not args:
+            message("Crunching the numbers >>>", gui_util.green)
+            right_pane.clear()
+            data = tristroke_category_data(get_medians_for_layout(
+                load_csv_data(active_speeds_file), analysis_target))
+            header_line = (
+                "Category                       ms    n     possible")
+            gui_util.insert_line_bottom(header_line, right_pane)
+            analysis_target.preprocessors["counts"].join()
+            print_stroke_categories(data, analysis_target.counts)
+        else:
+            message("Individual tristroke stats are"
+                " not yet implemented", gui_util.red)
+
+    def cmd_speeds_file():
+        nonlocal active_speeds_file
+        if not args:
+            active_speeds_file = "default"
+        else:
+            active_speeds_file = " ".join(args)
+        message(f"Set active speeds file to /data/{active_speeds_file}.csv",
+                gui_util.green)
+        if not os.path.exists(f"data/{active_speeds_file}.csv"):
+            message("The new file will be written upon save", gui_util.blue)
+        save_session_settings()
+
+    def cmd_improve():
+        nonlocal analysis_target
+        pinky_cap = 0.18 # reasonable default
+        for item in args:
+            try:
+                pinky_cap = float(item)
+                args.remove(item)
+                break
+            except ValueError:
+                return
+        pins = []
+        if "pin" in args:
+            while True:
+                token = args.pop()
+                if token == "pin":
+                    break
+                else:
+                    pins.append(token)
+        if args:
+            layout_name = " ".join(args)
+            try:
+                target_layout = layout.get_layout(layout_name)
+            except OSError:
+                message(f"/layouts/{layout_name} was not found.", 
+                        gui_util.red)
+                return
+        else:
+            target_layout = analysis_target
+        message("Using steepest ascent... >>>", gui_util.green)
+        
+        medians = get_medians_for_layout(
+            load_csv_data(active_speeds_file), target_layout)
+        tricatdata = tristroke_category_data(medians)
+
+        initial_score = summary_tristroke_analysis(
+            target_layout, tricatdata, medians, trigram_freqs)[0]
+        message(f"\nInitial layout: avg_ms = {initial_score:.4f}\n"
+            + repr(target_layout), win=right_pane)
+        
+        num_swaps = 0
+        optimized = target_layout
+        for optimized, score, swap in steepest_ascent(
+            target_layout, tricatdata, medians, trigram_freqs, pins,
+            pinky_cap
+        ):
+            num_swaps += 1
+            repr_ = repr(optimized)
+            message(f"Swap #{num_swaps} ({swap[0]} {swap[1]}) results "
+                f"in avg_ms = {score:.4f}\n"
+                + repr_, win=right_pane)
+        message(f"Local optimum reached", gui_util.green, right_pane)
+        
+        if optimized is not target_layout:
+            with open(f"layouts/{optimized.name}", "w") as file:
+                    file.write(repr_)
+            message(
+                f"Saved new layout as {optimized.name}\n"
+                "Set as analysis target",
+                gui_util.green, right_pane)
+            # reload from file in case
+            layout.Layout.loaded[optimized.name] = layout.Layout(
+                optimized.name)
+            analysis_target = layout.get_layout(optimized.name)
+            save_session_settings()
+
+    def cmd_si():
+        nonlocal analysis_target
+        num_iterations = 10 # reasonable default
+        for item in args:
+            try:
+                num_iterations = int(item)
+                args.remove(item)
+                break
+            except ValueError:
+                return
+        pinky_cap = 0.18 # reasonable default
+        for item in args:
+            try:
+                pinky_cap = float(item)
+                args.remove(item)
+                break
+            except ValueError:
+                return
+        pins = []
+        if "pin" in args:
+            while True:
+                token = args.pop()
+                if token == "pin":
+                    break
+                else:
+                    pins.append(token)
+        if args:
+            layout_name = " ".join(args)
+            try:
+                target_layout = layout.get_layout(layout_name)
+            except OSError:
+                message(f"/layouts/{layout_name} was not found.", 
+                        gui_util.red)
+                return
+        else:
+            target_layout = analysis_target
+        pin_positions = {key: target_layout.positions[key] for key in pins}
+        try: # load existing best if present
+            working_lay = layout.Layout(target_layout.name + "-best", False)
+        except OSError:
+            working_lay = layout.Layout(target_layout.name, False)
+        for key in pin_positions:
+            if pin_positions[key] != working_lay.positions[key]:
+                working_lay = layout.Layout(target_layout.name, False)
+                break
+        message("Shuffling & ascending... >>>", gui_util.green)
+        
+        medians = get_medians_for_layout(
+            load_csv_data(active_speeds_file), working_lay)
+        tricatdata = tristroke_category_data(medians)
+
+        best_score = summary_tristroke_analysis(
+                working_lay, tricatdata, medians, trigram_freqs)[0]
+        message(f"Initial best: avg_ms = {best_score:.4f}\n"
+                + repr(working_lay), win=right_pane)
+
+        for iteration in range(num_iterations):
+            working_lay.shuffle(pins=pins)
+            while working_lay.finger_letter_frequency(
+                    (Finger.LP, Finger.RP)) > pinky_cap:
+                working_lay.shuffle(pins=pins)
+            initial_score = summary_tristroke_analysis(
+                working_lay, tricatdata, medians, trigram_freqs)[0]
+            message(f"\nShuffle/Attempt {iteration}\n"
+                f"Initial shuffle: avg_ms = {initial_score:.4f}\n"
+                + repr(working_lay), win=right_pane)
+            
+            num_swaps = 0
+            optimized = working_lay
+            for optimized, score, swap in steepest_ascent(
+                working_lay, tricatdata, medians, trigram_freqs, pins,
+                pinky_cap, "-best"
+            ):
+                num_swaps += 1
+                repr_ = repr(optimized)
+                message(
+                    f"Swap #{iteration}.{num_swaps} ({swap[0]} {swap[1]})"
+                    f" results in avg_ms = {score:.4f}\n"
+                    + repr_, win=right_pane)
+            message(f"Local optimum reached", gui_util.green, right_pane)
+            
+            if optimized is not working_lay and score < best_score:
+                message(
+                    f"New best score of {score:.4f}\n"
+                    f"Saved as layouts/{optimized.name}", 
+                    gui_util.green, right_pane)
+                best_score = score
+                with open(f"layouts/{optimized.name}", "w") as file:
+                        file.write(repr_)
+        message("\nSet as analysis target",
+            gui_util.green, right_pane)
+        # reload from file in case
+        try:
+            layout.Layout.loaded[optimized.name] = layout.Layout(
+                optimized.name)
+            analysis_target = layout.get_layout(optimized.name)
+            save_session_settings()
+        except OSError: # no improvement found
+            return
+
+    def cmd_anneal():
+        nonlocal analysis_target
+        num_iterations = 10000 # reasonable default
+        for item in args:
+            try:
+                num_iterations = int(item)
+                args.remove(item)
+                break
+            except ValueError:
+                return
+        pinky_cap = 0.18 # reasonable default
+        for item in args:
+            try:
+                pinky_cap = float(item)
+                args.remove(item)
+                break
+            except ValueError:
+                return
+        pins = []
+        if "pin" in args:
+            while True:
+                token = args.pop()
+                if token == "pin":
+                    break
+                else:
+                    pins.append(token)
+        if args:
+            layout_name = " ".join(args)
+            try:
+                target_layout = layout.get_layout(layout_name)
+            except OSError:
+                message(f"/layouts/{layout_name} was not found.", 
+                        gui_util.red)
+                return
+        else:
+            target_layout = analysis_target
+        
+        message("Annealing... >>>", gui_util.green)
+        
+        medians = get_medians_for_layout(
+            load_csv_data(active_speeds_file), target_layout)
+        tricatdata = tristroke_category_data(medians)
+
+        initial_score = summary_tristroke_analysis(
+            target_layout, tricatdata, medians, trigram_freqs)[0]
+        message(
+            f"Initial score: avg_ms = {initial_score:.4f}\n"
+            + repr(target_layout), win=right_pane)
+        
+        last_time = -1
+        optimized = target_layout
+        for optimized, i, temperature, delta, score, swap in anneal(
+            target_layout, tricatdata, medians, trigram_freqs, pins,
+            pinky_cap, "-annealed", num_iterations
+        ):
+            current_time = time.perf_counter()
+            if current_time - last_time < 0.5:
+                continue
+            last_time = current_time
+            repr_ = repr(optimized)
+            message(
+                f"{i/num_iterations:.2%} progress, "
+                f"temperature = {temperature:.4f}, delta = {delta:.4f}\n"
+                f"Swapped ({swap[0]} {swap[1]}), avg_ms = {score:.4f}\n"
+                f"" + repr_, win=right_pane)
+        i = 1
+        path_ = f"layouts/{optimized.name}"
+        original_name = optimized.name
+        while os.path.exists(path_):
+            optimized.name = f"{original_name}-{i}"
+            path_ = f"layouts/{optimized.name}"
+            i += 1
+        with open(path_, "w") as file:
+                file.write(repr(optimized))
+        message(
+            f"Annealing complete\nSaved as {path_}"
+            "\nSet as analysis target", 
+            gui_util.green, right_pane)
+        layout.Layout.loaded[optimized.name] = layout.Layout(
+            optimized.name)
+        analysis_target = layout.get_layout(optimized.name)
+        save_session_settings()
+
+    def cmd_precision():
+        nonlocal trigram_freqs
+        nonlocal trigram_precision
+        nonlocal trigram_percent
+        try:
+            trigram_precision = int(args[0])
+        except IndexError:
+            message("Usage: precision <n>\nOr use \"precision full\"",
+                gui_util.red)
+            return
+        except ValueError:
+            if args[0] == "full":
+                trigram_precision = 0
+            else:
+                message("Precision must be an integer", gui_util.red)
+                return
+        trigram_freqs, trigram_percent = load_trigrams(trigram_precision)
+        save_session_settings()
+        message(f"Set trigram precision to {args[0]} ({trigram_percent:.3%})", 
+            gui_util.green)
+
+    def cmd_help():
+        help_text = [
+            "",
+            "",
+            "Command <required thing> [optional thing] option1|option2",
+            "-----Repeating a command-----",
+            "Precede with a number to repeat the command n times.",
+            "For example, '10 anneal QWERTY'",
+            "------General commands------",
+            "h[elp]: Show this list",
+            "reload [layout name]: Reload layout(s) from files",
+            "precision <n|full>: "
+                "Analyze using the top n trigrams, or all",
+            "l[ayout] [layout name]: View layout",
+            "q[uit]",
+            "----Typing data commands----",
+            "u[se] <layout name>: Set layout used in typing test",
+            "t[ype] [trigram]: Run typing test",
+            "c[lear] <trigram>: Erase data for trigram",
+            "df [filename]: Set typing data file, or use default",
+            "-----Analysis commands-----",
+            "target <layout name>: Set analysis target",
+            "a[nalyze] [layout name]: Detailed layout analysis",
+            "f[ingers] [layout name]: Hand/finger usage breakdown",
+            "r[ank]: Rank all layouts by wpm",
+            "rt <min|max> <freq|exact|avg_ms|ms> [category]: "
+                "Rank by tristroke statistic",
+            "bs [bistroke]: Show specified/all bistroke stats",
+            "ts [tristroke]: Show specified/all tristroke stats",
+            "tsc [category]: Show tristroke category/total stats",
+            "tgc [category] [with <fingers>] [without <fingers>]: "
+                "Show trigram category/total stats",
+            "i[mprove] [layout name] [pinky cap] [pin <keys>]: "
+                "Optimize layout",
+            "si [layout name] [n] [pinky cap] [pin <keys>]: "
+                "Shuffle and attempt optimization n times, saving the best",
+            "anneal [layout name] [n] [pinky cap] [pin <keys>]: "
+                "Optimize with simulated annealing"
+        ]
+        ymax = right_pane.getmaxyx()[0]
+        for line in help_text:
+            if ":" in line:
+                white_part, rest = line.split(":", 1)
+                white_part += ":"
+                rest_pos = len(white_part)
+                right_pane.addstr(ymax-1, 0, white_part)
+                right_pane.addstr(ymax-1, rest_pos, rest, 
+                                    curses.color_pair(gui_util.blue))
+            else:
+                right_pane.addstr(ymax-1, 0, line)
+            right_pane.scroll(1)
+        right_pane.refresh()
+
+    def cmd_tsc():
+        if not args:
+            category = ""
+        else:
+            category = parse_category(args[0])
+            if category is None:
+                return
+        
+        message("Crunching the numbers >>>", gui_util.green)
+        (speed, num_samples, with_fingers, without_fingers
+        ) = data_for_tristroke_category(category, get_medians_for_layout(
+            load_csv_data(active_speeds_file), analysis_target
+        ))
+        display_name = (category_display_names[category] 
+            if category in category_display_names else category)
+        row = right_pane.getmaxyx()[0] - 18
+        lh_fingers = tuple(
+            finger.name for finger in reversed(sorted(Finger)) if finger < 0)
+        rh_fingers = tuple(
+            finger.name for finger in sorted(Finger) if finger > 0)
+        spacing = 5
+        indent = 17
+        lh_fingers_label = " " * indent + (" " * spacing).join(lh_fingers)
+        rh_fingers_label = " " * indent + (" " * spacing).join(rh_fingers)
+        dash = "-" * len(lh_fingers_label)
+        speeds_label = "speeds (ms): "
+        n_label =  "       n = : "
+
+        gui_util.insert_line_bottom(
+            ("\nTristroke category: {}\nAverage ""{:.2f} ms, n={}")
+                .format(display_name, speed, num_samples),
+            right_pane)
+        
+        for withname in ("\nWith finger:", "\nWithout finger:"):
+            gui_util.insert_line_bottom(withname + "\n" + dash, right_pane)
+            for label in (lh_fingers_label, rh_fingers_label):
+                gui_util.insert_line_bottom(
+                    "\n".join((
+                        label, speeds_label, n_label, dash
+                    )),
+                right_pane)
+
+        for data in (with_fingers, without_fingers):
+            speeds = tuple(data[finger][0] for finger in list(Finger))
+            ns = tuple(data[finger][1] for finger in list(Finger))
+            sworst = max(speeds)
+            sbest = min(filter(None, speeds))
+            nworst = min(filter(None, ns))
+            nbest = max(ns)
+                
+            for finglist in (lh_fingers, rh_fingers):
+                col = len(speeds_label)
+                for finger in finglist:
+                    right_pane.addstr(
+                        row, col, "{:>6.1f}".format(
+                            data[Finger[finger]][0]),
+                        curses.color_pair(gui_util.color_scale(
+                            sworst, sbest, data[Finger[finger]][0], True)))
+                    right_pane.addstr(
+                        row+1, col, "{:>6}".format(
+                            data[Finger[finger]][1]),
+                        curses.color_pair(gui_util.color_scale(
+                            nworst, nbest, data[Finger[finger]][1], True)))
+                    col += 7
+                row += 4
+            row += 3
+        
+        right_pane.refresh()
+        input_win.move(0,0)
+
+    def cmd_tgc():
+        with_fingers = set()
+        without_fingers = set()
+        try:
+            for i in reversed(range(len(args))):
+                if args[i] == "with":
+                    for _ in range(len(args)-i):
+                        with_fingers.add(Finger[args.pop()])
+                    args.pop() # remove "with"
+                elif args[i] == "without":
+                    for _ in range(len(args)-i):
+                        without_fingers.add(Finger[args.pop()])
+                    args.pop() # remove "without"
+        except KeyError:
+            message("Usage:\n"
+                "tgc [category] [with <fingers>] [without <fingers>]",
+                gui_util.red)
+            return
+        if not with_fingers:
+            with_fingers = set(Finger)
+        if not args:
+            category = ""
+        else:
+            category = parse_category(args[0])
+            if category is None:
+                return
+                    
+        message("Crunching the numbers >>>", gui_util.green)
+        stats = trigrams_with_specifications(
+            get_medians_for_layout(
+                load_csv_data(active_speeds_file), analysis_target), 
+            trigram_freqs, analysis_target, 
+            category, with_fingers, without_fingers
+        )
+        overall = stats.pop("")
+        display_name = (category_display_names[category] 
+            if category in category_display_names else category)
+
+        header = (
+            f"Category: {display_name}",
+            f"With: {' '.join(f.name for f in with_fingers)}",
+            f"Without: {' '.join(f.name for f in without_fingers)}",
+            "Overall:",
+            "          freq   avg_ms       ms",
+            "       {:>6.2%}   {:>6.1f}   {:>6.2f}".format(*overall)
+        )
+        message("\n".join(header), win=right_pane)
+
+        col_settings = [ # for colors
+            {"transform": math.sqrt}, # freq
+            {"worst": max, "best": min}, # avg_ms
+            {"transform": math.sqrt, "worst": max, "best": min}, # ms
+        ]
+        pairs = gui_util.apply_scales(stats, col_settings)
+
+        num_rows = right_pane.getmaxyx()[0] - len(header)
+        rows_each = int(num_rows/3) - 3
+        first_row = right_pane.getmaxyx()[0] - rows_each
+        best_trigrams = sorted(stats, key=lambda t: stats[t][1])
+        worst_trigrams = sorted(
+            stats, key=lambda t: stats[t][2], reverse=True)
+        frequent_trigrams = sorted(
+            stats, key=lambda t: stats[t][0], reverse=True)
+        width = len(max(stats, key=lambda t: len(t)))
+        for list_, listname in zip(
+                (best_trigrams, worst_trigrams, frequent_trigrams),
+                ("Fastest:", "Worst:", "Most frequent:")):
+            message(f"\n{listname}\n" + " "*width + 
+                "     freq   avg_ms       ms", win=right_pane)
+            if len(list_) > rows_each:
+                list_ = list_[:rows_each]
+            right_pane.scroll(rows_each)
+            row = first_row
+            for tg in list_:
+                right_pane.move(row, 0)
+                right_pane.clrtoeol()
+                right_pane.addstr(
+                    row, 0, f"{tg:{width}s}   ")
+                right_pane.addstr( # freq
+                    row, width+3, f"{stats[tg][0]:>6.2%}",
+                    pairs[0][tg])
+                right_pane.addstr( # avg_ms
+                    row, width+12, f"{stats[tg][1]:>6.1f}",
+                    pairs[1][tg])
+                right_pane.addstr( # ms
+                    row, width+21, f"{stats[tg][2]:>6.2f}",
+                    pairs[2][tg])
+                right_pane.addstr( # category
+                    row, width+30, 
+                    tristroke_category(analysis_target.to_nstroke(
+                        tuple(tg.split(" ")))))
+                row += 1
+        right_pane.refresh()
+
+    def cmd_reload():
+        nonlocal user_layout
+        nonlocal analysis_target
+        if args:
+            layout_name = " ".join(args)
+            try:
+                layout.Layout.loaded[layout_name] = layout.Layout(
+                    layout_name)
+                message(f"Reloaded {layout_name} >>>", gui_util.green)
+                message(f"\n{layout_name}\n"
+                    + repr(layout.get_layout(layout_name)),
+                    win=right_pane)
+            except OSError:
+                message(f"/layouts/{layout_name} was not found.", 
+                        gui_util.red)
+                return
+        else:
+            to_delete = []
+            for layout_name in layout.Layout.loaded:
+                try:
+                    layout.Layout.loaded[layout_name] = layout.Layout(
+                        layout_name)
+                except OSError:
+                    to_delete.append(layout_name)
+            for layout_name in to_delete:
+                del layout.Layout.loaded[layout_name]
+            message("Reloaded all layouts", gui_util.green)
+        # If either of these were deleted just let it crash lol
+        # too lazy to deal with that
+        user_layout = layout.get_layout(user_layout.name)
+        analysis_target = layout.get_layout(analysis_target.name)
+
+    def cmd_debug():
+        gui_util.debug_win(message_win, "message_win")
+        gui_util.debug_win(right_pane, "right_pane")
+
+    def cmd_colors():
+        message("COLORS: {}".format(curses.COLORS))
+        message("COLOR_PAIRS: {}".format(curses.COLOR_PAIRS))
+        ymax = right_pane.getmaxyx()[0]
+        for i in range(curses.COLOR_PAIRS):
+            right_pane.addstr(
+                i % ymax, 9*int(i/ymax), 
+                "Color {}".format(i), curses.color_pair(i))
+        right_pane.refresh()
+
+    def cmd_gradient():
+        for i, color in enumerate(gui_util.gradient_colors):
+            message("Gradient level {}".format(i), color)
+
+    def cmd_unrecognized():
+        message("Unrecognized command", gui_util.red)
+
     for item in startup_messages:
         message(*item)
     
@@ -360,918 +1323,64 @@ def main(stdscr: curses.window):
         if not len(args):
             continue
         command = args.pop(0).lower()
-
-        if command in ("q", "quit"):
-            return
-        elif command in ("t", "type"):
-            if not args: # autosuggest trigram
-                # Choose the most frequent trigram from the least completed 
-                # category of the analysis target layout
-                with open("data/shai.json") as file:
-                    corpus = json.load(file)
-                trigram_list = corpus["toptrigrams"]
-                medians = get_medians_for_layout(
-                    load_csv_data(active_speeds_file), analysis_target)
-                catdata = tristroke_category_data(medians)
-                analysis_target.preprocessors["counts"].join()
-                counts = analysis_target.counts
-                completion = {}
-                for cat in catdata:
-                    if cat.startswith(".") or cat.endswith(".") or cat == "":
-                        continue
-                    n = catdata[cat][1]
-                    completion[cat] = n/counts[cat] if n > 0 else 0
-
-                ruled_out = {analysis_target.to_ngram(tristroke)
-                    for tristroke in medians} # already have data
-                trigram = None
-
-                def find_from_best_cat():
-                    if not completion:
-                        return None
-                    best_cat = min(completion, key = lambda cat: completion[cat])
-                    # trigram_list is sorted by descending frequency
-                    for entry in trigram_list:
-                        ng = tuple(key for key in entry["Ngram"])
-                        if ng in ruled_out:
-                            continue
-                        try:
-                            tristroke = analysis_target.to_nstroke(ng)
-                        except KeyError: # contains key not in layout
-                            continue
-                        if tristroke_category(tristroke) == best_cat:
-                            ruled_out.add(ng)
-                            if user_layout.to_ngram(tristroke): # keys exist
-                                return tristroke
-                    # if we get to this point, 
-                    # there was no compatible trigram in the category
-                    # Check next best category
-                    del completion[best_cat]
-                    return find_from_best_cat()
-                
-                tristroke = find_from_best_cat()
-                trigram = user_layout.to_ngram(tristroke)
-                if not tristroke:
-                    message("Unable to autosuggest - all compatible trigrams"
-                        " between the user layout and analysis target"
-                        " already have data", gui_util.red)
-                    continue
-                else:
-                    fingers = tuple(finger.name for finger in tristroke.fingers)
-                    message(f"Autosuggesting trigram {' '.join(trigram)}\n"
-                        f"({analysis_target.name} "
-                        f"{' '.join(analysis_target.to_ngram(tristroke))})\n"
-                        "Be sure to use {} {} {}".format(*fingers),
-                        gui_util.blue)
-            elif len(args) == 3:
-                tristroke = user_layout.to_nstroke(args)
-            elif len(args) == 1 and len(args[0]) == 3:
-                tristroke = user_layout.to_nstroke(args[0])
-            else:
-                message("Malformed trigram", gui_util.red)
-                continue
-            csvdata = load_csv_data(active_speeds_file)
-            if tristroke in csvdata:
-                message(
-                    f"Note: this tristroke already has "
-                    f"{len(csvdata[tristroke][0])} data points",
-                    gui_util.blue)
-            message("Starting typing test >>>", gui_util.green)
-            typingtest.test(right_pane, tristroke, user_layout, csvdata)
-            input_win.clear()
-            save_csv_data(csvdata, active_speeds_file)
-            message("Typing data saved", gui_util.green)
-        elif command in ("c", "clear"):
-            if len(args) == 3:
-                trigram = tuple(args)
-            elif len(args) == 1 and len(args[0]) == 3:
-                trigram = args[0]
-            else:
-                message("Usage: c[lear] <trigram>", gui_util.red)
-                continue
-            csvdata = load_csv_data(active_speeds_file)
-            tristroke = user_layout.to_nstroke(trigram)
-            try:
-                num_deleted = len(csvdata.pop(tristroke)[0])
-            except KeyError:
-                num_deleted = 0
-            save_csv_data(csvdata, active_speeds_file)
-            message(f"Deleted {num_deleted} data points for {' '.join(trigram)}")
-        elif command == "target":
-            layout_name = " ".join(args)
-            if layout_name: # set layout
-                try:
-                    analysis_target = layout.get_layout(layout_name)
-                    message("Set " + layout_name + " as the analysis target.",
-                            gui_util.green)
-                    save_session_settings()
-                except OSError:
-                    message(f"/layouts/{layout_name} was not found.", 
-                            gui_util.red)
-            else:
-                message("Usage: target <layout name>", gui_util.red)
-        elif command in ("l", "layout"):
-            layout_name = " ".join(args)
-            if layout_name:
-                try:
-                    message("\n"+ layout_name + "\n"
-                         + repr(layout.get_layout(layout_name)), win=right_pane)
-                except OSError:
-                    message(f"/layouts/{layout_name} was not found.", 
-                            gui_util.red)
-            else:
-                message("\n" + analysis_target.name + "\n"
-                     + repr(analysis_target), win=right_pane)
-        elif command in ("u", "use"):
-            layout_name = " ".join(args)
-            if layout_name: # set layout
-                try:
-                    user_layout = layout.get_layout(layout_name)
-                    message("Set " + layout_name + " as the user layout.",
-                            gui_util.green)
-                    save_session_settings()
-                except OSError:
-                    message(f"/layouts/{layout_name} was not found.", 
-                            gui_util.red)
-        elif command in ("a", "analyze"):
-            if args:
-                layout_name = " ".join(args)
-                try:
-                    target_layout = layout.get_layout(layout_name)
-                except OSError:
-                    message(f"/layouts/{layout_name} was not found.", 
-                            gui_util.red)
-                    continue
-            else:
-                target_layout = analysis_target
-            message("Crunching the numbers >>>", gui_util.green)
-            message_win.refresh()
-            
-            medians = get_medians_for_layout(
-                load_csv_data(active_speeds_file), target_layout)
-            tri_stats = tristroke_analysis(
-                target_layout, tristroke_category_data(medians), 
-                medians, trigram_freqs)
-            bi_stats = bistroke_analysis(
-                target_layout, bistroke_category_data(medians), medians)
-            
-            tri_ms = tri_stats[""][2]
-            tri_wpm = int(24000/tri_ms)
-            bi_ms = bi_stats[""][2]
-            bi_wpm = int(12000/bi_ms)
-
-            gui_util.insert_line_bottom(f"\nLayout: {target_layout}", right_pane)
-            gui_util.insert_line_bottom(
-                f"Overall {tri_ms:.1f} ms per trigram ({tri_wpm} wpm)", right_pane)
-            gui_util.insert_line_bottom(
-                f"Overall {bi_ms:.1f} ms per bigram ({bi_wpm} wpm)", right_pane)
-            
-            tri_header_line = (
-                "\nTristroke categories         freq    exact   avg_ms      ms")
-            bi_header_line = (
-                "\nBistroke categories          freq    exact   avg_ms      ms")
-            print_analysis_stats(tri_stats, tri_header_line)
-            print_analysis_stats(bi_stats, bi_header_line)
-        elif command in ("f", "fingers"):
-            if args:
-                layout_name = " ".join(args)
-                try:
-                    target_layout = layout.get_layout(layout_name)
-                except OSError:
-                    message(f"/layouts/{layout_name} was not found.", 
-                            gui_util.red)
-                    continue
-            else:
-                target_layout = analysis_target
-            message("Crunching the numbers >>>", gui_util.green)
-            message_win.refresh()
-            
-            medians = get_medians_for_layout(
-                load_csv_data(active_speeds_file), target_layout)
-            finger_stats = finger_analysis(
-                target_layout, tristroke_category_data(medians), 
-                medians, trigram_freqs)
-            gui_util.insert_line_bottom("\nHand/finger breakdown for "
-                f"{target_layout}", right_pane)
-            print_finger_stats(finger_stats)
-        elif command in ("r", "rank"): # uses summary_tristroke_analysis()
-            layout_file_list = scan_dir()
-            if not layout_file_list:
-                message("No layouts found in /layouts/", gui_util.red)
-                continue
-            message(f"Analyzing {len(layout_file_list)} layouts >>>", gui_util.green)
-            layouts = [layout.get_layout(name) for name in layout_file_list]
-            data = {}
-            csvdata = load_csv_data(active_speeds_file)
-            width = max(len(name) for name in layout_file_list)
-            gui_util.insert_line_bottom(
-                "\nLayout" + " "*(width-3) + "avg_ms   wpm    exact", right_pane)
-            ymax = right_pane.getmaxyx()[0]
-            first_row = ymax - len(layouts) - 2
-            if first_row < 1:
-                first_row = 1
-            right_pane.scroll(min(ymax-1, len(layouts) + 2))
-
-            col_settings = (
-                {"transform": math.sqrt, "worst": max, "best": min}, # avg_ms
-                {"transform": math.sqrt}, # exact
-            )
-
-            num_displayed = ymax - first_row
-
-            for lay in layouts:
-                medians = get_medians_for_layout(csvdata, lay)
-                tricatdata = tristroke_category_data(medians)
-                data[lay.name] = summary_tristroke_analysis(
-                    lay, tricatdata, medians, trigram_freqs)
-                row = first_row
-                sorted_ = list(sorted(data, key=lambda d: data[d][0]))
-                displayed = {sorted_[i]: data[sorted_[i]] 
-                    for i in range(len(sorted_)) if i < num_displayed}
-                pairs = gui_util.apply_scales(displayed, col_settings)
-                for lay in sorted_:
-                    try:
-                        right_pane.move(row, 0)
-                        right_pane.clrtoeol()
-                        right_pane.addstr(
-                            row, 0, f"{lay:{width}s}")
-                        right_pane.addstr( # avg_ms
-                            row, width+3, f"{data[lay][0]:6.2f}",
-                            pairs[0][lay])
-                        right_pane.addstr( # wpm
-                            row, width+12, f"{int(24000/data[lay][0]):3}",
-                            pairs[0][lay])
-                        right_pane.addstr( # exact
-                            row, width+18, f"{data[lay][1]:6.2%}",
-                            pairs[1][lay])
-                        row += 1
-                    except curses.error:
-                        continue # list went off the screen
-                        # TODO something better than just 
-                        # cutting off the list like this lmao
-                right_pane.refresh()
-            message(f"Ranking complete", gui_util.green)
-        elif command == "rt": # uses full tristroke_analysis()
-            reverse_opts = {"min": False, "max": True}
-            analysis_opts = {"freq": 0, "exact": 1, "avg_ms": 2, "ms": 3}
-            try:
-                reverse_ = reverse_opts[args[0]]
-                sorting_col = analysis_opts[args[1]]
-            except (KeyError, IndexError):
-                message("Usage: rt <min|max> <freq|exact|avg_ms|ms> [category]",
-                    gui_util.red)
-                continue
-            try:
-                category = parse_category(args[2])
-                if category is None:
-                    continue
-            except IndexError:
-                category = ""
-            category_name = (category_display_names[category] 
-                if category in category_display_names else category)
-            if category.endswith(".") or not category:
-                category_name += " (total) "
-
-            layout_file_list = scan_dir()
-            if not layout_file_list:
-                message("No layouts found in /layouts/", gui_util.red)
-                continue
-            message(f"Analyzing {len(layout_file_list)} layouts >>>",
-                gui_util.green)
-            width = max(len(name) for name in layout_file_list)
-            gui_util.insert_line_bottom(
-                f"\nRanking by tristroke category: {category_name}, "
-                f"{args[0]} {args[1]} first"
-                "\nLayout" + " "*(width-1) 
-                + "freq    exact   avg_ms      ms", right_pane)
-            ymax = right_pane.getmaxyx()[0]
-            first_row = ymax - len(layout_file_list) - 3
-            if first_row < 2:
-                first_row = 2
-            right_pane.scroll(min(ymax-2, len(layout_file_list) + 1))
-            right_pane.refresh()
-            layouts = [layout.get_layout(name) for name in layout_file_list]
-            num_displayed = ymax - first_row
-
-            data = {}
-            csvdata = load_csv_data(active_speeds_file)
-
-            col_settings = [ # for colors
-                {"transform": math.sqrt}, # freq
-                {"transform": math.sqrt}, # exact
-                {"worst": max, "best": min}, # avg_ms
-                {"transform": math.sqrt, "worst": max, "best": min}, # ms
-            ]
-            col_settings_inverted = col_settings.copy()
-            col_settings_inverted[0] = col_settings_inverted[3]
-            
-            for lay in layouts:
-                medians = get_medians_for_layout(csvdata, lay)
-                tricatdata = tristroke_category_data(medians)
-                data[lay.name] = tristroke_analysis(
-                    lay, tricatdata, medians, trigram_freqs)
-                row = first_row
-                
-                # color freq by whether the category is faster than total
-                try:
-                    this_avg = statistics.mean(
-                        data[layname][category][2] for layname in data)
-                    total_avg = statistics.mean(
-                        data[layname][""][2] for layname in data)
-                    invert = this_avg > total_avg
-                except statistics.StatisticsError:
-                    invert = False
-                names = list(sorted(
-                    data, key=lambda name: data[name][category][sorting_col], 
-                    reverse=reverse_))
-                rows = {name: data[name][category] 
-                    for i, name in enumerate(names) if i < num_displayed}
-                if invert:
-                    pairs = gui_util.apply_scales(
-                        rows, col_settings_inverted)    
-                else:
-                    pairs = gui_util.apply_scales(rows, col_settings)
-
-                # printing
-                for rowname in rows:
-                    try:
-                        right_pane.move(row, 0)
-                        right_pane.clrtoeol()
-                        right_pane.addstr(
-                            row, 0, f"{rowname:{width}s}   ")
-                        right_pane.addstr( # freq
-                            row, width+3, f"{rows[rowname][0]:>6.2%}",
-                            pairs[0][rowname])
-                        right_pane.addstr( # exact
-                            row, width+12, f"{rows[rowname][1]:>6.2%}",
-                            pairs[1][rowname])
-                        right_pane.addstr( # avg_ms
-                            row, width+21, f"{rows[rowname][2]:>6.1f}",
-                            pairs[2][rowname])
-                        right_pane.addstr( # ms
-                            row, width+29, f"{rows[rowname][3]:>6.2f}",
-                            pairs[3][rowname])
-                        row += 1
-                    except curses.error:
-                        continue # list went off the screen
-                        # TODO something better than just 
-                        # cutting off the list like this lmao
-                right_pane.refresh()
-            message(f"Ranking complete", gui_util.green)
-        elif command in ("bs", "bistroke"):
-            if not args:
-                message("Crunching the numbers >>>", gui_util.green)
-                message_win.refresh()
-                right_pane.clear()
-                data = bistroke_category_data(get_medians_for_layout(
-                    load_csv_data(active_speeds_file), analysis_target))
-                print_stroke_categories(data)
-            else:
-                message("Individual bistroke stats are"
-                    " not yet implemented", gui_util.red)
-        elif command in ("ts", "tristroke"):
-            if not args:
-                message("Crunching the numbers >>>", gui_util.green)
-                right_pane.clear()
-                data = tristroke_category_data(get_medians_for_layout(
-                    load_csv_data(active_speeds_file), analysis_target))
-                header_line = (
-                    "Category                       ms    n     possible")
-                gui_util.insert_line_bottom(header_line, right_pane)
-                analysis_target.preprocessors["counts"].join()
-                print_stroke_categories(data, analysis_target.counts)
-            else:
-                message("Individual tristroke stats are"
-                    " not yet implemented", gui_util.red)
-        elif command == "df":
-            if not args:
-                active_speeds_file = "default"
-            else:
-                active_speeds_file = " ".join(args)
-            message(f"Set active speeds file to /data/{active_speeds_file}.csv",
-                    gui_util.green)
-            if not os.path.exists(f"data/{active_speeds_file}.csv"):
-                message("The new file will be written upon save", gui_util.blue)
-            save_session_settings()
-        elif command in ("i", "improve"):
-            pinky_cap = 0.18 # reasonable default
-            for item in args:
-                try:
-                    pinky_cap = float(item)
-                    args.remove(item)
-                    break
-                except ValueError:
-                    continue
-            pins = []
-            if "pin" in args:
-                while True:
-                    token = args.pop()
-                    if token == "pin":
-                        break
-                    else:
-                        pins.append(token)
-            if args:
-                layout_name = " ".join(args)
-                try:
-                    target_layout = layout.get_layout(layout_name)
-                except OSError:
-                    message(f"/layouts/{layout_name} was not found.", 
-                            gui_util.red)
-                    continue
-            else:
-                target_layout = analysis_target
-            message("Using steepest ascent... >>>", gui_util.green)
-            
-            medians = get_medians_for_layout(
-                load_csv_data(active_speeds_file), target_layout)
-            tricatdata = tristroke_category_data(medians)
-
-            initial_score = summary_tristroke_analysis(
-                target_layout, tricatdata, medians, trigram_freqs)[0]
-            message(f"\nInitial layout: avg_ms = {initial_score:.4f}\n"
-                + repr(target_layout), win=right_pane)
-            
-            num_swaps = 0
-            optimized = target_layout
-            for optimized, score, swap in steepest_ascent(
-                target_layout, tricatdata, medians, trigram_freqs, pins,
-                pinky_cap
-            ):
-                num_swaps += 1
-                repr_ = repr(optimized)
-                message(f"Swap #{num_swaps} ({swap[0]} {swap[1]}) results "
-                    f"in avg_ms = {score:.4f}\n"
-                    + repr_, win=right_pane)
-            message(f"Local optimum reached", gui_util.green, right_pane)
-            
-            if optimized is not target_layout:
-                with open(f"layouts/{optimized.name}", "w") as file:
-                        file.write(repr_)
-                message(
-                    f"Saved new layout as {optimized.name}\n"
-                    "Set as analysis target",
-                    gui_util.green, right_pane)
-                # reload from file in case
-                layout.Layout.loaded[optimized.name] = layout.Layout(
-                    optimized.name)
-                analysis_target = layout.get_layout(optimized.name)
-                save_session_settings()
-        elif command in ("si",):
-            num_iterations = 10 # reasonable default
-            for item in args:
-                try:
-                    num_iterations = int(item)
-                    args.remove(item)
-                    break
-                except ValueError:
-                    continue
-            pinky_cap = 0.18 # reasonable default
-            for item in args:
-                try:
-                    pinky_cap = float(item)
-                    args.remove(item)
-                    break
-                except ValueError:
-                    continue
-            pins = []
-            if "pin" in args:
-                while True:
-                    token = args.pop()
-                    if token == "pin":
-                        break
-                    else:
-                        pins.append(token)
-            if args:
-                layout_name = " ".join(args)
-                try:
-                    target_layout = layout.get_layout(layout_name)
-                except OSError:
-                    message(f"/layouts/{layout_name} was not found.", 
-                            gui_util.red)
-                    continue
-            else:
-                target_layout = analysis_target
-            pin_positions = {key: target_layout.positions[key] for key in pins}
-            try: # load existing best if present
-                working_lay = layout.Layout(target_layout.name + "-best", False)
-            except OSError:
-                working_lay = layout.Layout(target_layout.name, False)
-            for key in pin_positions:
-                if pin_positions[key] != working_lay.positions[key]:
-                    working_lay = layout.Layout(target_layout.name, False)
-                    break
-            message("Shuffling & ascending... >>>", gui_util.green)
-            
-            medians = get_medians_for_layout(
-                load_csv_data(active_speeds_file), working_lay)
-            tricatdata = tristroke_category_data(medians)
-
-            best_score = summary_tristroke_analysis(
-                    working_lay, tricatdata, medians, trigram_freqs)[0]
-            message(f"Initial best: avg_ms = {best_score:.4f}\n"
-                    + repr(working_lay), win=right_pane)
-
-            for iteration in range(num_iterations):
-                working_lay.shuffle(pins=pins)
-                while working_lay.finger_letter_frequency(
-                        (Finger.LP, Finger.RP)) > pinky_cap:
-                    working_lay.shuffle(pins=pins)
-                initial_score = summary_tristroke_analysis(
-                    working_lay, tricatdata, medians, trigram_freqs)[0]
-                message(f"\nShuffle/Attempt {iteration}\n"
-                    f"Initial shuffle: avg_ms = {initial_score:.4f}\n"
-                    + repr(working_lay), win=right_pane)
-                
-                num_swaps = 0
-                optimized = working_lay
-                for optimized, score, swap in steepest_ascent(
-                    working_lay, tricatdata, medians, trigram_freqs, pins,
-                    pinky_cap, "-best"
-                ):
-                    num_swaps += 1
-                    repr_ = repr(optimized)
-                    message(
-                        f"Swap #{iteration}.{num_swaps} ({swap[0]} {swap[1]})"
-                        f" results in avg_ms = {score:.4f}\n"
-                        + repr_, win=right_pane)
-                message(f"Local optimum reached", gui_util.green, right_pane)
-                
-                if optimized is not working_lay and score < best_score:
-                    message(
-                        f"New best score of {score:.4f}\n"
-                        f"Saved as layouts/{optimized.name}", 
-                        gui_util.green, right_pane)
-                    best_score = score
-                    with open(f"layouts/{optimized.name}", "w") as file:
-                            file.write(repr_)
-            message("\nSet as analysis target",
-                gui_util.green, right_pane)
-            # reload from file in case
-            try:
-                layout.Layout.loaded[optimized.name] = layout.Layout(
-                    optimized.name)
-                analysis_target = layout.get_layout(optimized.name)
-                save_session_settings()
-            except OSError: # no improvement found
-                continue
-        elif command in ("anneal",):
-            num_iterations = 10000 # reasonable default
-            for item in args:
-                try:
-                    num_iterations = int(item)
-                    args.remove(item)
-                    break
-                except ValueError:
-                    continue
-            pinky_cap = 0.18 # reasonable default
-            for item in args:
-                try:
-                    pinky_cap = float(item)
-                    args.remove(item)
-                    break
-                except ValueError:
-                    continue
-            pins = []
-            if "pin" in args:
-                while True:
-                    token = args.pop()
-                    if token == "pin":
-                        break
-                    else:
-                        pins.append(token)
-            if args:
-                layout_name = " ".join(args)
-                try:
-                    target_layout = layout.get_layout(layout_name)
-                except OSError:
-                    message(f"/layouts/{layout_name} was not found.", 
-                            gui_util.red)
-                    continue
-            else:
-                target_layout = analysis_target
-            
-            message("Annealing... >>>", gui_util.green)
-            
-            medians = get_medians_for_layout(
-                load_csv_data(active_speeds_file), target_layout)
-            tricatdata = tristroke_category_data(medians)
-
-            initial_score = summary_tristroke_analysis(
-                target_layout, tricatdata, medians, trigram_freqs)[0]
-            message(
-                f"Initial score: avg_ms = {initial_score:.4f}\n"
-                + repr(target_layout), win=right_pane)
-            
-            last_time = -1
-            optimized = target_layout
-            for optimized, i, temperature, delta, score, swap in anneal(
-                target_layout, tricatdata, medians, trigram_freqs, pins,
-                pinky_cap, "-annealed", num_iterations
-            ):
-                current_time = time.perf_counter()
-                if current_time - last_time < 0.5:
-                    continue
-                last_time = current_time
-                repr_ = repr(optimized)
-                message(
-                    f"{i/num_iterations:.2%} progress, "
-                    f"temperature = {temperature:.4f}, delta = {delta:.4f}\n"
-                    f"Swapped ({swap[0]} {swap[1]}), avg_ms = {score:.4f}\n"
-                    f"" + repr_, win=right_pane)
-            i = 1
-            path = f"layouts/{optimized.name}"
-            original_name = optimized.name
-            while os.path.exists(path):
-                optimized.name = f"{original_name}-{i}"
-                path = f"layouts/{optimized.name}"
-                i += 1
-            with open(path, "w") as file:
-                    file.write(repr(optimized))
-            message(
-                f"Annealing complete\nSaved as {path}"
-                "\nSet as analysis target", 
-                gui_util.green, right_pane)
-            layout.Layout.loaded[optimized.name] = layout.Layout(
-                optimized.name)
-            analysis_target = layout.get_layout(optimized.name)
-            save_session_settings()
-        elif command == "precision":
-            try:
-                trigram_precision = int(args[0])
-            except IndexError:
-                message("Usage: precision <n>\nOr use \"precision full\"",
-                    gui_util.red)
-                continue
-            except ValueError:
-                if args[0] == "full":
-                    trigram_precision = 0
-                else:
-                    message("Precision must be an integer", gui_util.red)
-                    continue
-            trigram_freqs, trigram_percent = load_trigrams(trigram_precision)
-            save_session_settings()
-            message(f"Set trigram precision to {args[0]} ({trigram_percent:.3%})", 
-                gui_util.green)
-        elif command in ("h", "help"):
-            help_text = [
-                "",
-                "",
-                "Command <required thing> [optional thing] option1|option2",
-                "------General commands------",
-                "h[elp]: Show this list",
-                "reload [layout name]: Reload layout(s) from files",
-                "precision <n|full>:"
-                    "Analyze using the top n trigrams, or all",
-                "l[ayout] [layout name]: View layout",
-                "q[uit]",
-                "----Typing data commands----",
-                "u[se] <layout name>: Set layout used in typing test",
-                "t[ype] [trigram]: Run typing test",
-                "c[lear] <trigram>: Erase data for trigram",
-                "df [filename]: Set typing data file, or use default",
-                "-----Analysis commands-----",
-                "target <layout name>: Set analysis target",
-                "a[nalyze] [layout name]: Detailed layout analysis",
-                "f[ingers] [layout name]: Hand/finger usage breakdown",
-                "r[ank]: Rank all layouts by wpm",
-                "rt <min|max> <freq|exact|avg_ms|ms> [category]: "
-                    "Rank by tristroke statistic",
-                "bs [bistroke]: Show specified/all bistroke stats",
-                "ts [tristroke]: Show specified/all tristroke stats",
-                "tsc [category]: Show tristroke category/total stats",
-                "tgc [category] [with <fingers>] [without <fingers>]: "
-                    "Show trigram category/total stats",
-                "i[mprove] [layout name] [pinky cap] [pin <keys>]: "
-                    "Optimize layout",
-                "si [layout name] [n] [pinky cap] [pin <keys>]: "
-                    "Shuffle and attempt optimization n times",
-                "anneal [layout name] [n] [pinky cap] [pin <keys>]: "
-                    "Optimize with simulated annealing"
-            ]
-            ymax = right_pane.getmaxyx()[0]
-            for line in help_text:
-                if ":" in line:
-                    white_part, rest = line.split(":", 1)
-                    white_part += ":"
-                    rest_pos = len(white_part)
-                    right_pane.addstr(ymax-1, 0, white_part)
-                    right_pane.addstr(ymax-1, rest_pos, rest, 
-                                      curses.color_pair(gui_util.blue))
-                else:
-                    right_pane.addstr(ymax-1, 0, line)
-                right_pane.scroll(1)
-            right_pane.refresh()
-        elif command in ("tsc",):
-            if not args:
-                category = ""
-            else:
-                category = parse_category(args[0])
-                if category is None:
-                    continue
-            
-            message("Crunching the numbers >>>", gui_util.green)
-            (speed, num_samples, with_fingers, without_fingers
-            ) = data_for_tristroke_category(category, get_medians_for_layout(
-                load_csv_data(active_speeds_file), analysis_target
-            ))
-            display_name = (category_display_names[category] 
-                if category in category_display_names else category)
-            row = right_pane.getmaxyx()[0] - 18
-            lh_fingers = tuple(
-                finger.name for finger in reversed(sorted(Finger)) if finger < 0)
-            rh_fingers = tuple(
-                finger.name for finger in sorted(Finger) if finger > 0)
-            spacing = 5
-            indent = 17
-            lh_fingers_label = " " * indent + (" " * spacing).join(lh_fingers)
-            rh_fingers_label = " " * indent + (" " * spacing).join(rh_fingers)
-            dash = "-" * len(lh_fingers_label)
-            speeds_label = "speeds (ms): "
-            n_label =  "       n = : "
-
-            gui_util.insert_line_bottom(
-                ("\nTristroke category: {}\nAverage ""{:.2f} ms, n={}")
-                    .format(display_name, speed, num_samples),
-                right_pane)
-            
-            for withname in ("\nWith finger:", "\nWithout finger:"):
-                gui_util.insert_line_bottom(withname + "\n" + dash, right_pane)
-                for label in (lh_fingers_label, rh_fingers_label):
-                    gui_util.insert_line_bottom(
-                        "\n".join((
-                            label, speeds_label, n_label, dash
-                        )),
-                    right_pane)
-
-            for data in (with_fingers, without_fingers):
-                speeds = tuple(data[finger][0] for finger in list(Finger))
-                ns = tuple(data[finger][1] for finger in list(Finger))
-                sworst = max(speeds)
-                sbest = min(filter(None, speeds))
-                nworst = min(filter(None, ns))
-                nbest = max(ns)
-                    
-                for finglist in (lh_fingers, rh_fingers):
-                    col = len(speeds_label)
-                    for finger in finglist:
-                        right_pane.addstr(
-                            row, col, "{:>6.1f}".format(
-                                data[Finger[finger]][0]),
-                            curses.color_pair(gui_util.color_scale(
-                                sworst, sbest, data[Finger[finger]][0], True)))
-                        right_pane.addstr(
-                            row+1, col, "{:>6}".format(
-                                data[Finger[finger]][1]),
-                            curses.color_pair(gui_util.color_scale(
-                                nworst, nbest, data[Finger[finger]][1], True)))
-                        col += 7
-                    row += 4
-                row += 3
-            
-            right_pane.refresh()
-            input_win.move(0,0)
-        elif command == "tgc":
-            with_fingers = set()
-            without_fingers = set()
-            try:
-                for i in reversed(range(len(args))):
-                    if args[i] == "with":
-                        for _ in range(len(args)-i):
-                            with_fingers.add(Finger[args.pop()])
-                        args.pop() # remove "with"
-                    elif args[i] == "without":
-                        for _ in range(len(args)-i):
-                            without_fingers.add(Finger[args.pop()])
-                        args.pop() # remove "without"
-            except KeyError:
-                message("Usage:\n"
-                    "tgc [category] [with <fingers>] [without <fingers>]",
-                    gui_util.red)
-                continue
-            if not with_fingers:
-                with_fingers = set(Finger)
-            if not args:
-                category = ""
-            else:
-                category = parse_category(args[0])
-                if category is None:
-                    continue
-                        
-            message("Crunching the numbers >>>", gui_util.green)
-            stats = trigrams_with_specifications(
-                get_medians_for_layout(
-                    load_csv_data(active_speeds_file), analysis_target), 
-                trigram_freqs, analysis_target, 
-                category, with_fingers, without_fingers
-            )
-            overall = stats.pop("")
-            display_name = (category_display_names[category] 
-                if category in category_display_names else category)
-
-            header = (
-                f"Category: {display_name}",
-                f"With: {' '.join(f.name for f in with_fingers)}",
-                f"Without: {' '.join(f.name for f in without_fingers)}",
-                "Overall:",
-                "          freq   avg_ms       ms",
-                "       {:>6.2%}   {:>6.1f}   {:>6.2f}".format(*overall)
-            )
-            message("\n".join(header), win=right_pane)
-
-            col_settings = [ # for colors
-                {"transform": math.sqrt}, # freq
-                {"worst": max, "best": min}, # avg_ms
-                {"transform": math.sqrt, "worst": max, "best": min}, # ms
-            ]
-            pairs = gui_util.apply_scales(stats, col_settings)
-
-            num_rows = right_pane.getmaxyx()[0] - len(header)
-            rows_each = int(num_rows/3) - 3
-            first_row = right_pane.getmaxyx()[0] - rows_each
-            best_trigrams = sorted(stats, key=lambda t: stats[t][1])
-            worst_trigrams = sorted(
-                stats, key=lambda t: stats[t][2], reverse=True)
-            frequent_trigrams = sorted(
-                stats, key=lambda t: stats[t][0], reverse=True)
-            width = len(max(stats, key=lambda t: len(t)))
-            for list_, listname in zip(
-                    (best_trigrams, worst_trigrams, frequent_trigrams),
-                    ("Fastest:", "Worst:", "Most frequent:")):
-                message(f"\n{listname}\n" + " "*width + 
-                    "     freq   avg_ms       ms", win=right_pane)
-                if len(list_) > rows_each:
-                    list_ = list_[:rows_each]
-                right_pane.scroll(rows_each)
-                row = first_row
-                for tg in list_:
-                    right_pane.move(row, 0)
-                    right_pane.clrtoeol()
-                    right_pane.addstr(
-                        row, 0, f"{tg:{width}s}   ")
-                    right_pane.addstr( # freq
-                        row, width+3, f"{stats[tg][0]:>6.2%}",
-                        pairs[0][tg])
-                    right_pane.addstr( # avg_ms
-                        row, width+12, f"{stats[tg][1]:>6.1f}",
-                        pairs[1][tg])
-                    right_pane.addstr( # ms
-                        row, width+21, f"{stats[tg][2]:>6.2f}",
-                        pairs[2][tg])
-                    right_pane.addstr( # category
-                        row, width+30, 
-                        tristroke_category(analysis_target.to_nstroke(
-                            tuple(tg.split(" ")))))
-                    row += 1
-            right_pane.refresh()
-            
-        elif command == "reload":
-            if args:
-                layout_name = " ".join(args)
-                try:
-                    layout.Layout.loaded[layout_name] = layout.Layout(
-                        layout_name)
-                    message(f"Reloaded {layout_name} >>>", gui_util.green)
-                    message(f"\n{layout_name}\n"
-                        + repr(layout.get_layout(layout_name)),
-                        win=right_pane)
-                except OSError:
-                    message(f"/layouts/{layout_name} was not found.", 
-                            gui_util.red)
-                    continue
-            else:
-                to_delete = []
-                for layout_name in layout.Layout.loaded:
-                    try:
-                        layout.Layout.loaded[layout_name] = layout.Layout(
-                            layout_name)
-                    except OSError:
-                        to_delete.append(layout_name)
-                for layout_name in to_delete:
-                    del layout.Layout.loaded[layout_name]
-                message("Reloaded all layouts", gui_util.green)
-            # If either of these were deleted just let it crash lol
-            # too lazy to deal with that
-            user_layout = layout.get_layout(user_layout.name)
-            analysis_target = layout.get_layout(analysis_target.name)
-        # Debug commands
-        elif command == "debug":
-            gui_util.debug_win(message_win, "message_win")
-            gui_util.debug_win(right_pane, "right_pane")
-        elif command == "colors":
-            message("COLORS: {}".format(curses.COLORS))
-            message("COLOR_PAIRS: {}".format(curses.COLOR_PAIRS))
-            ymax = right_pane.getmaxyx()[0]
-            for i in range(curses.COLOR_PAIRS):
-                right_pane.addstr(
-                    i % ymax, 9*int(i/ymax), 
-                    "Color {}".format(i), curses.color_pair(i))
-            right_pane.refresh()
-        elif command == "gradient":
-            for i, color in enumerate(gui_util.gradient_colors):
-                message("Gradient level {}".format(i), color)
+        try:
+            num_repetitions = int(command)
+            command = args.pop(0).lower()
+        except ValueError:
+            num_repetitions = 1
         
-        else:
-            message("Unrecognized command", gui_util.red)            
+        for _ in range(num_repetitions):
+            if command in ("q", "quit"):
+                return
+            elif command in ("t", "type"):
+                cmd_type()
+            elif command in ("c", "clear"):
+                cmd_clear()
+            elif command == "target":
+                cmd_target()
+            elif command in ("l", "layout"):
+                cmd_layout()
+            elif command in ("u", "use"):
+                cmd_use()
+            elif command in ("a", "analyze"):
+                cmd_analyze()
+            elif command in ("f", "fingers"):
+                cmd_fingers()
+            elif command in ("r", "rank"):
+                cmd_rank()
+            elif command == "rt":
+                cmd_rt()
+            elif command in ("bs", "bistroke"):
+                cmd_bistroke()
+            elif command in ("ts", "tristroke"):
+                cmd_tristroke()
+            elif command == "df":
+                cmd_speeds_file()
+            elif command in ("i", "improve"):
+                cmd_improve()
+            elif command in ("si",):
+                cmd_si()
+            elif command in ("anneal",):
+                cmd_anneal()
+            elif command == "precision":
+                cmd_precision()
+            elif command in ("h", "help"):
+                cmd_help()
+            elif command in ("tsc",):
+                cmd_tsc()
+            elif command == "tgc":
+                cmd_tgc()
+            elif command == "reload":
+                cmd_reload()
+            # Debug commands
+            elif command == "debug":
+                cmd_debug()
+            elif command == "colors":
+                cmd_colors()
+            elif command == "gradient":
+                cmd_gradient()
+            else:
+                cmd_unrecognized()            
 
 def start_csv_row(tristroke: Tristroke):
     """Order of returned data: note, fingers, coords"""
