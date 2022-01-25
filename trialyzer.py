@@ -638,7 +638,7 @@ def main(stdscr: curses.window):
         category_name = (category_display_names[category] 
             if category in category_display_names else category)
         if category.endswith(".") or not category:
-            category_name += " (total) "
+            category_name += " (total)"
 
         layout_file_list = scan_dir()
         if not layout_file_list:
@@ -1066,7 +1066,7 @@ def main(stdscr: curses.window):
             "ts [tristroke]: Show specified/all tristroke stats",
             "tsc [category]: Show tristroke category/total stats",
             "tgc [category] [with <fingers>] [without <fingers>]: "
-                "Show trigram category/total stats",
+                "Show speeds and trigrams of interest in recorded data",
             "i[mprove] [layout name] [pinky cap] [pin <keys>]: "
                 "Optimize layout",
             "si [layout name] [n] [pinky cap] [pin <keys>]: "
@@ -1224,7 +1224,7 @@ def main(stdscr: curses.window):
         width = len(max(stats, key=lambda t: len(t)))
         for list_, listname in zip(
                 (best_trigrams, worst_trigrams, frequent_trigrams),
-                ("Fastest:", "Worst:", "Most frequent:")):
+                ("Fastest:", "Highest impact:", "Most frequent:")):
             message(f"\n{listname}\n" + " "*width + 
                 "     freq   avg_ms       ms", win=right_pane)
             if len(list_) > rows_each:

@@ -11,9 +11,10 @@ Uses Python packages:
 - `curses` (on windows, use `windows-curses`)
 
 Usage:
-- Once you have the above packages installed in your environment, run `trialyzer.py`.
-    - I'll probably get around to a requirements.txt eventually maybe possibly.
-- Trialyzer requires a pretty big console window for certain features. If you get a curses error, you may have to increase your window size and/or decrease font size.
+- Once you have the above packages installed in your environment, use Python to run `trialyzer.py`.
+    - I'll probably get around to a requirements.txt and other things eventually maybe possibly.
+- Trialyzer runs in a terminal window. For best results, use a terminal that is capable of colors. 
+    - A pretty big terminal window is needed for certain features. If you get a curses error, you may have to increase your window size and/or decrease font size.
 
 Features:
 - Layout analysis based on typing data provided by and personally applicable to you
@@ -22,15 +23,14 @@ Features:
 - Estimate the physical typing speed limit of each layout based on your typing data
 - Rank layouts by a large variety of different statistics
 - Custom layouts, fingermaps, and even physical board definitions can be added in files
-- Layout optimization by simulated annealing and steepest ascent
+- Layout optimization by simulated annealing and steepest ascent, with key pinning
 
 Planned:
-- Further generation/optimization
+- Further generation/optimization tools
 - Heatmaps based on a variety of statistics
 - More fingermaps, boards, layouts
 - Alt fingering and sliding (maybe with some kind of customizable tag?)
 - Shift layers/multiple characters per key
-- Best and worst ngrams of each category
 
 ## Motivation
 
@@ -44,15 +44,9 @@ Much discussion has been had about whether different movements are better or wor
 - Is QWERTY's `ve` roll tolerable until you add `x` afterward? 
 - How bad is Colemak's `you` really, compared to the average redirect? Compared to `oyu`?
 
-![Some stats shown after a bit of data collection](/misc/stats_image_1.png)
+![Some images of trialyzer in action](/misc/medley_1.png)
 
-Instead of taking same finger bigrams, skipgrams, rolls, and all those other stats, and combining them into an overall layout fitness using arbitrary weights, it is my hope that the trigram speed statistic will naturally incorporate the effects of all these stats into one overall layout speed score, with no arbitrary weight selection required. However, we wouldn't be giving up the granularity of all those specific stats. In fact, we would be able to obtain *more* insight into, for example, exactly how bad each different sfb is, and how much they slow you down compared to the average non-sfb.
-
-Here is an example of the kinds of insight trialyzer might be able to provide (with fictitious numbers):
-
-- For layout A, the average keystroke time is 51.62 ms, giving a theoretical speed cap of 465 wpm. Of that average keystroke time, 8.16 ms (15.8%) is from redirects, which occur with a frequency of 6.89%.
-- For layout B, the average keystroke time is 55.30 ms, giving a theoretical speed cap of 434 wpm. Of that average keystroke time, 7.02 ms (12.7%) is from redirects, which occur with a frequency of 7.03%.
-- Therefore, we can say that layout B has more redirects than layout A, but those redirects aren't as bad. Perhaps we could break down the stats further to discover that layout A has redirects concentrated in the ring and pinky fingers, while layout B has redirects concentrated in the index and middle fingers. Or maybe one layout has redirects that jump between rows, and the other doesn't.
+Instead of taking same finger bigrams, skipgrams, rolls, and all those other stats, and combining them into an overall layout fitness using arbitrary weights, the trigram speed statistic naturally incorporates the effects of all these stats into one overall layout speed score, with no arbitrary weight selection required. However, we don't give up up the granularity of all those specific stats. In fact, with all this data, we actually obtain *more* insight into, for example, exactly how bad each different sfb is, and how much they slow you down compared to the average non-sfb.
 
 Of course, this approach comes with some limitations and drawbacks. 
 
