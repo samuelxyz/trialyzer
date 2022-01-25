@@ -1164,11 +1164,11 @@ def main(stdscr: curses.window):
         try:
             for i in reversed(range(len(args))):
                 if args[i] == "with":
-                    for _ in range(len(args)-i):
+                    for _ in range(len(args)-i-1):
                         with_fingers.add(Finger[args.pop()])
                     args.pop() # remove "with"
                 elif args[i] == "without":
-                    for _ in range(len(args)-i):
+                    for _ in range(len(args)-i-1):
                         without_fingers.add(Finger[args.pop()])
                     args.pop() # remove "without"
         except KeyError:
@@ -1201,9 +1201,10 @@ def main(stdscr: curses.window):
             f"Category: {display_name}",
             f"With: {' '.join(f.name for f in with_fingers)}",
             f"Without: {' '.join(f.name for f in without_fingers)}",
-            "Overall:",
-            "          freq   avg_ms       ms",
-            "       {:>6.2%}   {:>6.1f}   {:>6.2f}".format(*overall)
+            "Overall: (for trigrams with exact data)",
+            "          freq   avg_ms       ms   n",
+            "      {:>8.3%}   {:>6.1f}  {:>7.3f}".format(*overall)
+            + f"   {len(stats)}"
         )
         message("\n".join(header), win=right_pane)
 
@@ -1227,7 +1228,7 @@ def main(stdscr: curses.window):
                 (best_trigrams, worst_trigrams, frequent_trigrams),
                 ("Fastest:", "Highest impact:", "Most frequent:")):
             message(f"\n{listname}\n" + " "*width + 
-                "     freq   avg_ms       ms", win=right_pane)
+                "     freq   avg_ms       ms   category", win=right_pane)
             if len(list_) > rows_each:
                 list_ = list_[:rows_each]
             right_pane.scroll(rows_each)
@@ -1238,13 +1239,13 @@ def main(stdscr: curses.window):
                 right_pane.addstr(
                     row, 0, f"{tg:{width}s}   ")
                 right_pane.addstr( # freq
-                    row, width+3, f"{stats[tg][0]:>6.2%}",
+                    row, width+2, f"{stats[tg][0]:>7.3%}",
                     pairs[0][tg])
                 right_pane.addstr( # avg_ms
                     row, width+12, f"{stats[tg][1]:>6.1f}",
                     pairs[1][tg])
                 right_pane.addstr( # ms
-                    row, width+21, f"{stats[tg][2]:>6.2f}",
+                    row, width+21, f"{stats[tg][2]:>6.3f}",
                     pairs[2][tg])
                 right_pane.addstr( # category
                     row, width+30, 
@@ -1697,8 +1698,15 @@ def trigrams_with_specifications_raw(
         without_fingers: set[Finger] = set()):
     """Returns dict[trigram_tuple, (total_freq, total_time)]"""
     applicable = applicable_function(category)
-    result = {"": [0,0]} # total_freq, total_time
+    result = {"": [0,0]} # total_freq, total_time for category
+    total_freq = 0 # for all trigrams
     for tristroke in medians:
+        trigram = layout_.to_ngram(tristroke)
+        try:
+            freq = trigram_freqs["".join(trigram)]
+        except KeyError:
+            continue
+        total_freq += freq
         if with_fingers.isdisjoint(tristroke.fingers):
             continue
         reject = False
@@ -1711,11 +1719,6 @@ def trigrams_with_specifications_raw(
         cat = tristroke_category(tristroke)
         if not applicable(cat):
             continue
-        trigram = layout_.to_ngram(tristroke)
-        try:
-            freq = trigram_freqs["".join(trigram)]
-        except KeyError:
-            continue
         speed = medians[tristroke][2]
         for key in ("", trigram):
             try:
@@ -1723,7 +1726,7 @@ def trigrams_with_specifications_raw(
                 result[key][1] += speed*freq
             except KeyError:
                 result[key] = [freq, speed*freq]
-    return result
+    return total_freq, result
 
 def trigrams_with_specifications(
         medians: dict, trigram_freqs: dict, layout_: layout.Layout, 
@@ -1731,14 +1734,14 @@ def trigrams_with_specifications(
         with_fingers: set[Finger] = set(Finger), 
         without_fingers: set[Finger] = set()):
     """Returns dict[trigram_str, (freq, avg_ms, ms)]"""
-    raw = trigrams_with_specifications_raw(
+    total_freq, raw = trigrams_with_specifications_raw(
             medians, trigram_freqs, layout_, category, 
             with_fingers, without_fingers)
     result = dict()
     for key in raw:
-        freq = raw[key][0]/raw[""][0] if raw[""][0] else 0
+        freq = raw[key][0]/total_freq if total_freq else 0
         avg_ms = raw[key][1]/raw[key][0] if raw[key][0] else 0
-        ms = raw[key][1]/raw[""][0] if raw[""][0] else 0
+        ms = raw[key][1]/total_freq if total_freq else 0
         result[" ".join(key)] = (freq, avg_ms, ms)
     return result
 
