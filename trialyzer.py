@@ -10,6 +10,8 @@ import json
 import time
 from typing import Iterable
 
+from numpy import tri
+
 from board import Coord
 from fingermap import Finger
 from nstroke import *
@@ -517,6 +519,59 @@ def main(stdscr: curses.window):
         print_analysis_stats(tri_stats, tri_header_line)
         print_analysis_stats(bi_stats, bi_header_line)
 
+    def cmd_dump():
+        layout_file_list = scan_dir()
+        if not layout_file_list:
+            message("No layouts found in /layouts/", gui_util.red)
+            return
+        message(f"Analyzing {len(layout_file_list)} layouts...", gui_util.green)
+        layouts = [layout.get_layout(name) for name in layout_file_list]
+        csvdata = load_csv_data(active_speeds_file)
+
+        right_pane.scroll(2)
+        rownum = right_pane.getmaxyx()[0] - 1
+        tristroke_display_names = []
+        for cat in sorted(all_tristroke_categories):
+            try:
+                tristroke_display_names.append(category_display_names[cat])
+            except KeyError:
+                tristroke_display_names.append(cat)
+        bistroke_display_names = []
+        for cat in sorted(all_bistroke_categories):
+            try:
+                bistroke_display_names.append(category_display_names[cat])
+            except KeyError:
+                bistroke_display_names.append(cat)
+        header = ["name"]
+        for cat in tristroke_display_names:
+            for colname in ("freq", "exact", "avg_ms", "ms"):
+                header.append(f"tristroke-{cat}-{colname}")
+        for cat in bistroke_display_names:
+            for colname in ("freq", "exact", "avg_ms", "ms"):
+                header.append(f"bistroke-{cat}-{colname}")
+        filename = find_free_filename("output/dump", ".csv")
+        with open(filename, "w", newline="") as csvfile:
+            w = csv.writer(csvfile)
+            w.writerow(header)
+            for i, lay in enumerate(layouts):
+                medians = get_medians_for_layout(csvdata, lay)
+                tricatdata = tristroke_category_data(medians)
+                tridata = tristroke_analysis(lay, tricatdata, medians,
+                    trigram_freqs)
+                bicatdata = bistroke_category_data(medians)
+                bidata = bistroke_analysis(lay, bicatdata, medians)
+                right_pane.addstr(rownum, 0, 
+                    f"Analyzed {i+1}/{len(layouts)} layouts")
+                right_pane.refresh()
+                row = [lay.name]
+                for cat in sorted(all_tristroke_categories):
+                    row.extend(tridata[cat])
+                for cat in sorted(all_bistroke_categories):
+                    row.extend(bidata[cat])
+                row.extend(repr(lay).split("\n"))
+                w.writerow(row)
+        message(f"Done\nSaved as {filename}", gui_util.green, right_pane)
+
     def cmd_fingers():
         if args:
             layout_name = " ".join(args)
@@ -603,13 +658,8 @@ def main(stdscr: curses.window):
         message(f"Ranking complete", gui_util.green)
         if output:
             header = ["name", "avg_ms", "exact"]
-            base_path = "output/ranking"
-            path_ = base_path
-            i = 1
-            while os.path.exists(f"{path_}.csv"):
-                path_ = f"{base_path}-{i}"
-                i += 1
-            with open(f"{path_}.csv", "w", newline="") as csvfile:
+            filename = find_free_filename("output/ranking", ".csv")
+            with open(filename, "w", newline="") as csvfile:
                 w = csv.writer(csvfile)
                 w.writerow(header)
                 for lay in layouts:
@@ -617,7 +667,7 @@ def main(stdscr: curses.window):
                     row.extend(data[lay.name])
                     row.extend(repr(lay).split("\n"))
                     w.writerow(row)
-            message(f"Saved ranking as {path_}.csv", gui_util.green)
+            message(f"Saved ranking as {filename}", gui_util.green)
 
     def cmd_rt():
         reverse_opts = {"min": False, "max": True}
@@ -997,14 +1047,10 @@ def main(stdscr: curses.window):
                 f"Swapped ({swap[0]} {swap[1]}), avg_ms = {score:.4f}\n"
                 f"" + repr_, win=right_pane)
         i = 1
-        path_ = f"layouts/{optimized.name}"
-        original_name = optimized.name
-        while os.path.exists(path_):
-            optimized.name = f"{original_name}-{i}"
-            path_ = f"layouts/{optimized.name}"
-            i += 1
+        path_ = find_free_filename(f"layouts/{optimized.name}")
         with open(path_, "w") as file:
                 file.write(repr(optimized))
+        optimized.name = path_[8:]
         message(
             f"Annealing complete\nSaved as {path_}"
             "\nSet as analysis target", 
@@ -1062,6 +1108,7 @@ def main(stdscr: curses.window):
             "r[ank]: Rank all layouts by wpm",
             "rt <min|max> <freq|exact|avg_ms|ms> [category]: "
                 "Rank by tristroke statistic",
+            "dump: Analyze all layouts and write data to a csv",
             "bs [bistroke]: Show specified/all bistroke stats",
             "ts [tristroke]: Show specified/all tristroke stats",
             "tsc [category]: Show tristroke category/total stats",
@@ -1346,6 +1393,8 @@ def main(stdscr: curses.window):
                 cmd_use()
             elif command in ("a", "analyze"):
                 cmd_analyze()
+            elif command == "dump":
+                cmd_dump()
             elif command in ("f", "fingers"):
                 cmd_fingers()
             elif command in ("r", "rank"):
@@ -1428,16 +1477,27 @@ def save_csv_data(data: dict, filename: str):
         "x0", "y0", "x1", "y1", "x2", "y2"
     ]
     with open("data/" + filename + ".csv", "w", newline="") as csvfile:
-            w = csv.writer(csvfile)
-            w.writerow(header)
-            for tristroke in data:
-                if not data[tristroke] or not data[tristroke][0]:
-                    continue
-                row = start_csv_row(tristroke)
-                row.extend(itertools.chain.from_iterable(
-                    zip(data[tristroke][0], 
-                        data[tristroke][1])))
-                w.writerow(row)
+        w = csv.writer(csvfile)
+        w.writerow(header)
+        for tristroke in data:
+            if not data[tristroke] or not data[tristroke][0]:
+                continue
+            row = start_csv_row(tristroke)
+            row.extend(itertools.chain.from_iterable(
+                zip(data[tristroke][0], 
+                    data[tristroke][1])))
+            w.writerow(row)
+
+def find_free_filename(before_number: str, after_number: str = ""):
+    """Returns the filename {before_number}{after_number} if not already taken,
+    or else returns the filename {before_number}-{i}{after_number} with the 
+    smallest i that results in a filename not already taken."""
+    incl_number = before_number
+    i = 1
+    while os.path.exists(incl_number + after_number):
+        incl_number = f"{before_number}-{i}"
+        i += 1
+    return before_number + after_number
 
 def get_medians_for_layout(csv_data: dict, layout: layout.Layout):
     """Take csv data, find tristrokes that are applicable to the given layout,
