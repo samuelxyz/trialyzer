@@ -1178,6 +1178,7 @@ def main(stdscr: curses.window):
             return
         if not with_fingers:
             with_fingers = set(Finger)
+        with_fingers -= without_fingers
         if not args:
             category = ""
         else:
