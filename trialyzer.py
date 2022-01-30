@@ -1540,7 +1540,7 @@ def find_free_filename(before_number: str, after_number: str = ""):
     while os.path.exists(incl_number + after_number):
         incl_number = f"{before_number}-{i}"
         i += 1
-    return before_number + after_number
+    return incl_number + after_number
 
 def get_medians_for_layout(csv_data: dict, layout: layout.Layout):
     """Take csv data, find tristrokes that are applicable to the given layout,
