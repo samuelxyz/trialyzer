@@ -6,5 +6,6 @@
 /layouts/*-ascended
 /layouts/*-best
 /layouts/*-anneal*
+/old-layouts
 session_settings.json
 todo

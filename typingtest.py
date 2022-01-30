@@ -75,7 +75,7 @@ def test(win: curses.window, tristroke: nstroke.Tristroke,
     def format_stats(data: list):
         try:
             return "{0:^5.1f}   {1:^5.1f}   {2:^5.1f} ms, n={3}".format(
-                statistics.mean(data),
+                statistics.fmean(data),
                 statistics.stdev(data),
                 statistics.median(data),
                 len(data)
