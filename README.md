@@ -22,12 +22,12 @@ Features:
 - Autosuggest trigrams to use in the typing test to most effectively characterize a layout's common finger movements
 - Estimate the physical typing speed limit of each layout based on your typing data
 - Rank layouts by a large variety of different statistics
+- Draw layout heatmaps using a large variety of different statistics
 - Custom layouts, fingermaps, and even physical board definitions can be added in files
 - Layout optimization by simulated annealing and steepest ascent, with key pinning
 
 Planned:
 - Further generation/optimization tools
-- Heatmaps based on a variety of statistics
 - More fingermaps, boards, layouts
 - Alt fingering and sliding (maybe with some kind of customizable tag?)
 - Shift layers/multiple characters per key
