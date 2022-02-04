@@ -338,8 +338,15 @@ def main(stdscr: curses.window):
                     return cat
         else:
             message("Unrecognized category", gui_util.red)
-            return None     
+            return None 
 
+    def category_display_name(category: str):
+        category_name = (category_display_names[category] 
+            if category in category_display_names else category)
+        if category.endswith(".") or not category:
+            category_name += " (total)"
+        return category_name
+    
     def cmd_type():
         if not args: # autosuggest trigram
             # Choose the most frequent trigram from the least completed 
@@ -347,7 +354,7 @@ def main(stdscr: curses.window):
             with open("data/shai.json") as file:
                 corpus = json.load(file)
             trigram_list = corpus["toptrigrams"]
-            medians = get_medians_for_layout(
+            medians = tristroke_medians(
                 load_csv_data(active_speeds_file), analysis_target)
             catdata = tristroke_category_data(medians)
             analysis_target.preprocessors["counts"].join()
@@ -491,13 +498,14 @@ def main(stdscr: curses.window):
         message("Crunching the numbers >>>", gui_util.green)
         message_win.refresh()
         
-        medians = get_medians_for_layout(
+        medians = tristroke_medians(
             load_csv_data(active_speeds_file), target_layout)
-        tri_stats = tristroke_analysis(
+        tri_stats = layout_tristroke_analysis(
             target_layout, tristroke_category_data(medians), 
             medians, trigram_freqs, tristroke_breakdowns(medians))
-        bi_stats = bistroke_analysis(
-            target_layout, bistroke_category_data(medians), medians)
+        bi_stats = layout_bistroke_analysis(
+            target_layout, bistroke_category_data(medians), 
+            bistroke_medians(medians))
         
         tri_ms = tri_stats[""][2]
         tri_wpm = int(24000/tri_ms)
@@ -562,12 +570,13 @@ def main(stdscr: curses.window):
             w = csv.writer(csvfile)
             w.writerow(header)
             for i, lay in enumerate(layouts):
-                medians = get_medians_for_layout(csvdata, lay)
+                medians = tristroke_medians(csvdata, lay)
                 tricatdata = tristroke_category_data(medians)
-                tridata = tristroke_analysis(lay, tricatdata, medians,
+                tridata = layout_tristroke_analysis(lay, tricatdata, medians,
                     trigram_freqs, tristroke_breakdowns(medians))
                 bicatdata = bistroke_category_data(medians)
-                bidata = bistroke_analysis(lay, bicatdata, medians)
+                bidata = layout_bistroke_analysis(lay, bicatdata, 
+                    bistroke_medians(medians))
                 right_pane.addstr(rownum, 0, 
                     f"Analyzed {i+1}/{len(layouts)} layouts")
                 right_pane.refresh()
@@ -590,7 +599,7 @@ def main(stdscr: curses.window):
                 tristroke_display_names.append(cat)
         header = ["trigram", "category", "ms_low", "ms_high", "ms_first", "ms_second", "ms_total"]
         csvdata = load_csv_data(active_speeds_file)
-        medians = get_medians_for_layout(csvdata, analysis_target)
+        medians = tristroke_medians(csvdata, analysis_target)
         
         filename = find_free_filename("output/dump-catmedians", ".csv")
         with open(filename, "w", newline="") as csvfile:
@@ -620,11 +629,11 @@ def main(stdscr: curses.window):
         message("Crunching the numbers >>>", gui_util.green)
         message_win.refresh()
         
-        medians = get_medians_for_layout(
+        medians = tristroke_medians(
             load_csv_data(active_speeds_file), target_layout)
         finger_stats = finger_analysis(
             target_layout, tristroke_category_data(medians), 
-            medians, trigram_freqs)
+            medians, trigram_freqs, tristroke_breakdowns(medians))
         gui_util.insert_line_bottom("\nHand/finger breakdown for "
             f"{target_layout}", right_pane)
         print_finger_stats(finger_stats)
@@ -659,10 +668,10 @@ def main(stdscr: curses.window):
         num_displayed = ymax - first_row
 
         for lay in layouts:
-            medians = get_medians_for_layout(csvdata, lay)
+            medians = tristroke_medians(csvdata, lay)
             tricatdata = tristroke_category_data(medians)
             tribreakdowns = tristroke_breakdowns(medians)
-            data[lay.name] = summary_tristroke_analysis(
+            data[lay.name] = layout_speed(
                 lay, tricatdata, medians, trigram_freqs, tribreakdowns)
             row = first_row
             sorted_ = list(sorted(data, key=lambda d: data[d][0]))
@@ -720,10 +729,7 @@ def main(stdscr: curses.window):
                 return
         except IndexError:
             category = ""
-        category_name = (category_display_names[category] 
-            if category in category_display_names else category)
-        if category.endswith(".") or not category:
-            category_name += " (total)"
+        category_name = category_display_name(category)
 
         layout_file_list = scan_dir()
         if not layout_file_list:
@@ -759,10 +765,10 @@ def main(stdscr: curses.window):
         col_settings_inverted[0] = col_settings_inverted[3]
         
         for lay in layouts:
-            medians = get_medians_for_layout(csvdata, lay)
+            medians = tristroke_medians(csvdata, lay)
             tricatdata = tristroke_category_data(medians)
             tribreakdowns = tristroke_breakdowns(medians)
-            data[lay.name] = tristroke_analysis(
+            data[lay.name] = layout_tristroke_analysis(
                 lay, tricatdata, medians, trigram_freqs, tribreakdowns)
             row = first_row
             
@@ -818,7 +824,7 @@ def main(stdscr: curses.window):
             message("Crunching the numbers >>>", gui_util.green)
             message_win.refresh()
             right_pane.clear()
-            data = bistroke_category_data(get_medians_for_layout(
+            data = bistroke_category_data(tristroke_medians(
                 load_csv_data(active_speeds_file), analysis_target))
             print_stroke_categories(data)
         else:
@@ -829,7 +835,7 @@ def main(stdscr: curses.window):
         if not args:
             message("Crunching the numbers >>>", gui_util.green)
             right_pane.clear()
-            data = tristroke_category_data(get_medians_for_layout(
+            data = tristroke_category_data(tristroke_medians(
                 load_csv_data(active_speeds_file), analysis_target))
             header_line = (
                 "Category                       ms    n     possible")
@@ -882,12 +888,12 @@ def main(stdscr: curses.window):
             target_layout = analysis_target
         message("Using steepest ascent... >>>", gui_util.green)
         
-        medians = get_medians_for_layout(
+        medians = tristroke_medians(
             load_csv_data(active_speeds_file), target_layout)
         tricatdata = tristroke_category_data(medians)
         tribreakdowns = tristroke_breakdowns(medians)
 
-        initial_score = summary_tristroke_analysis(
+        initial_score = layout_speed(
             target_layout, tricatdata, medians, 
             trigram_freqs, tribreakdowns)[0]
         message(f"\nInitial layout: avg_ms = {initial_score:.4f}\n"
@@ -966,12 +972,12 @@ def main(stdscr: curses.window):
                 break
         message("Shuffling & ascending... >>>", gui_util.green)
         
-        medians = get_medians_for_layout(
+        medians = tristroke_medians(
             load_csv_data(active_speeds_file), working_lay)
         tricatdata = tristroke_category_data(medians)
         tribreakdowns = tristroke_breakdowns(medians)
 
-        best_score = summary_tristroke_analysis(
+        best_score = layout_speed(
                 working_lay, tricatdata, 
                 medians, trigram_freqs, tribreakdowns)[0]
         message(f"Initial best: avg_ms = {best_score:.4f}\n"
@@ -982,7 +988,7 @@ def main(stdscr: curses.window):
             while working_lay.finger_letter_frequency(
                     (Finger.LP, Finger.RP)) > pinky_cap:
                 working_lay.shuffle(pins=pins)
-            initial_score = summary_tristroke_analysis(
+            initial_score = layout_speed(
                 working_lay, tricatdata, 
                 medians, trigram_freqs, tribreakdowns)[0]
             message(f"\nShuffle/Attempt {iteration}\n"
@@ -1061,12 +1067,12 @@ def main(stdscr: curses.window):
         
         message("Annealing... >>>", gui_util.green)
         
-        medians = get_medians_for_layout(
+        medians = tristroke_medians(
             load_csv_data(active_speeds_file), target_layout)
         tricatdata = tristroke_category_data(medians)
         tribreakdowns = tristroke_breakdowns(medians)
 
-        initial_score = summary_tristroke_analysis(
+        initial_score = layout_speed(
             target_layout, tricatdata, 
             medians, trigram_freqs, tribreakdowns)[0]
         message(
@@ -1151,6 +1157,7 @@ def main(stdscr: curses.window):
             "r[ank]: Rank all layouts by wpm",
             "rt <min|max> <freq|exact|avg_ms|ms> [category]: "
                 "Rank by tristroke statistic",
+            "draw [<freq|exact|avg_ms|ms> [category]]: Draw or heatmap",
             "dump <a[nalysis]|m[edians]>: Write some data to a csv",
             "bs [bistroke]: Show specified/all bistroke stats",
             "ts [tristroke]: Show specified/all tristroke stats",
@@ -1188,7 +1195,7 @@ def main(stdscr: curses.window):
         
         message("Crunching the numbers >>>", gui_util.green)
         (speed, num_samples, with_fingers, without_fingers
-        ) = data_for_tristroke_category(category, get_medians_for_layout(
+        ) = data_for_tristroke_category(category, tristroke_medians(
             load_csv_data(active_speeds_file), analysis_target
         ))
         display_name = (category_display_names[category] 
@@ -1278,7 +1285,7 @@ def main(stdscr: curses.window):
                     
         message("Crunching the numbers >>>", gui_util.green)
         stats = trigrams_with_specifications(
-            get_medians_for_layout(
+            tristroke_medians(
                 load_csv_data(active_speeds_file), analysis_target), 
             trigram_freqs, analysis_target, 
             category, with_fingers, without_fingers
@@ -1376,6 +1383,70 @@ def main(stdscr: curses.window):
         user_layout = layout.get_layout(user_layout.name)
         analysis_target = layout.get_layout(analysis_target.name)
 
+    def cmd_draw():
+        coords = analysis_target.coords # dict[key, coord]
+        if args:
+            analysis_opts = {"freq": 0, "exact": 1, "avg_ms": 2, "ms": 3}
+            color_settings_opts = [ # for colors
+                {"transform": math.sqrt}, # freq
+                {"transform": math.sqrt}, # exact
+                {"worst": max, "best": min}, # avg_ms
+                {"transform": math.sqrt, "worst": max, "best": min}, # ms
+            ]
+            try:
+                sorting_col = analysis_opts[args[0]]
+                color_settings = color_settings_opts[sorting_col]
+            except (KeyError, IndexError):
+                message("Usage: draw [<freq|exact|avg_ms|ms> [category]]",
+                    gui_util.red)
+                return
+            try:
+                category = parse_category(args[1])
+                if category is None:
+                    return
+            except IndexError:
+                category = ""
+            category_name = category_display_name(category)
+
+            csvdata = load_csv_data(active_speeds_file)
+            medians = tristroke_medians(csvdata, analysis_target)
+            tricatdata = tristroke_category_data(medians)
+            tribreakdowns = tristroke_breakdowns(medians)
+            stats = key_analysis(
+                analysis_target, tricatdata, 
+                medians, trigram_freqs, tribreakdowns)
+            color_stat = {
+                key: (stats[key][category][sorting_col],) for key in stats}
+            pairs = gui_util.apply_scales(color_stat, (color_settings,))[0]
+            message(f"\n{analysis_target.name} heatmap by "
+                f"tristroke {category_name} {args[0]}\n", 
+                win=right_pane)
+        else:
+            pairs = {key: curses.color_pair(0) for key in coords}
+            message(f"\n{analysis_target.name}\n", win=right_pane)
+
+        x_scale = 4
+        y_scale = -2
+        max_y = max(coords.values(), key=lambda c: c.y).y
+        min_y = min(coords.values(), key=lambda c: c.y).y
+        min_x = min(coords.values(), key=lambda c: c.x).x
+        num_lines = abs(int(y_scale*(max_y - min_y)))+1
+        right_pane.scroll(num_lines)
+        first_row = right_pane.getmaxyx()[0] - num_lines
+        first_col = 0
+        origin_row = first_row - max_y*y_scale
+        origin_col = first_col - min_x*x_scale
+        for key in coords:
+            try:
+                right_pane.addstr(
+                    int(origin_row + y_scale*coords[key].y), 
+                    int(origin_col + x_scale*coords[key].x),
+                    key, pairs[key]
+                )
+            except curses.error:
+                pass
+        right_pane.refresh()
+
     def cmd_debug():
         gui_util.debug_win(message_win, "message_win")
         gui_util.debug_win(right_pane, "right_pane")
@@ -1466,6 +1537,8 @@ def main(stdscr: curses.window):
                 cmd_tgc()
             elif command == "reload":
                 cmd_reload()
+            elif command == "draw":
+                cmd_draw()
             # Debug commands
             elif command == "debug":
                 cmd_debug()
@@ -1542,7 +1615,7 @@ def find_free_filename(before_number: str, after_number: str = ""):
         i += 1
     return incl_number + after_number
 
-def get_medians_for_layout(csv_data: dict, layout: layout.Layout):
+def tristroke_medians(csv_data: dict, layout: layout.Layout):
     """Take csv data, find tristrokes that are applicable to the given layout,
     and obtain speeds_01, speeds_12, and speeds_02 as medians per tristroke.
     
@@ -1877,28 +1950,17 @@ def tristroke_breakdowns(medians: dict):
             result[cat][bs] = (mean, count)
     return result
 
-def bistroke_analysis(layout: layout.Layout, bicatdata: dict, medians: dict):
-    """Returns dict[category, (freq_prop, known_prop, speed, contribution)]
-    
-    bicatdata is the output of bistroke_category_data(). That is,
-    dict[category: string, (speed: float, num_samples: int)]
-    
-    medians is the output of get_medians_for_layout(). That is, 
-    dict[Tristroke, (float, float, float)]"""
-    with open("data/shai.json") as file:
-        corpus = json.load(file)
-
-    # break medians down from tristrokes to bistrokes
+def bistroke_medians(tri_medians: dict):
     bi_medians = {}
-    for tristroke in medians:
+    for tristroke in tri_medians:
         bi0 = (
             Nstroke(
                 tristroke.note, tristroke.fingers[:2], tristroke.coords[:2]),
-            medians[tristroke][0])
+            tri_medians[tristroke][0])
         bi1 = (
             Nstroke(
                 tristroke.note, tristroke.fingers[1:], tristroke.coords[1:]),
-            medians[tristroke][1])
+            tri_medians[tristroke][1])
         for bi_tuple in (bi0, bi1):
             try:
                 bi_medians[bi_tuple[0]].append(bi_tuple[1])
@@ -1906,7 +1968,22 @@ def bistroke_analysis(layout: layout.Layout, bicatdata: dict, medians: dict):
                 bi_medians[bi_tuple[0]] = [bi_tuple[1]]
     for bistroke in bi_medians:
         bi_medians[bistroke] = statistics.fmean(bi_medians[bistroke])
+
+    return bi_medians
+
+def layout_bistroke_analysis(layout: layout.Layout, bicatdata: dict, bi_medians: dict, 
+        bigram_freqs = ...):
+    """Returns dict[category, (freq_prop, known_prop, speed, contribution)]
     
+    bicatdata is the output of bistroke_category_data(). That is,
+    dict[category: string, (speed: float, num_samples: int)]
+    
+    bigram_freqs will be loaded from shai if not specified. 
+    (The ability to specify is so you can filter.)"""
+
+    with open("data/shai.json") as file:
+        corpus = json.load(file)
+
     bigram_freqs = corpus["bigrams"]
     # {category: [total_time, exact_freq, total_freq]}
     by_category = {category: [0,0,0] for category in all_bistroke_categories}
@@ -1951,7 +2028,30 @@ def bistroke_analysis(layout: layout.Layout, bicatdata: dict, medians: dict):
     
     return stats
 
-def tristroke_analysis(layout: layout.Layout, tricatdata: dict, medians: dict,
+def speed_of_tristroke(ts: Tristroke, medians: dict, tribreakdowns: dict,
+        tricatdata: dict):
+    """Determines the speed of the tristroke. Uses data from medians if it exists;
+    if not, uses tribreakdowns as a fallback, and if that still fails then
+    uses the average speed of the category from tricatdata.
+    
+    Returns (duration in ms, is_exact)"""
+    cat = tristroke_category(ts)
+    try:
+        speed = medians[ts][2]
+        is_exact = True
+    except KeyError: # Use breakdown data instead
+        is_exact = False
+        try:
+            speed = 0.0
+            bs1 = Nstroke(ts.note, ts.fingers[:2], ts.coords[:2])
+            speed += tribreakdowns[cat][bs1][0]
+            bs2 = Nstroke(ts.note, ts.fingers[1:], ts.coords[1:])
+            speed += tribreakdowns[cat][bs2][0]
+        except KeyError: # Use general category speed
+            speed = tricatdata[cat][0]
+    return (speed, is_exact)
+
+def layout_tristroke_analysis(layout: layout.Layout, tricatdata: dict, medians: dict,
     trigram_freqs: dict, tribreakdowns: dict):
     """Returns dict[category, (freq_prop, known_prop, speed, contribution)]
     
@@ -1969,21 +2069,12 @@ def tristroke_analysis(layout: layout.Layout, tricatdata: dict, medians: dict,
             continue
         cat = tristroke_category(ts)
         freq = trigram_freqs[trigram]
-        try:
-            speed = medians[ts][2]
+        speed, is_exact = speed_of_tristroke(
+            ts, medians, tribreakdowns, tricatdata)
+        if is_exact:
             by_category[cat][1] += freq
-        except KeyError: # Use breakdown data instead
-            try:
-                speed = 0.0
-                bs1 = Nstroke(ts.note, ts.fingers[:2], ts.coords[:2])
-                speed += tribreakdowns[cat][bs1][0]
-                bs2 = Nstroke(ts.note, ts.fingers[1:], ts.coords[1:])
-                speed += tribreakdowns[cat][bs2][0]
-            except KeyError: # Use general category speed
-                speed = tricatdata[cat][0]
-        finally:
-            by_category[cat][0] += speed * freq
-            by_category[cat][2] += freq
+        by_category[cat][0] += speed * freq
+        by_category[cat][2] += freq
     
     # fill in sum categories
     for cat in all_tristroke_categories:
@@ -2010,7 +2101,7 @@ def tristroke_analysis(layout: layout.Layout, tricatdata: dict, medians: dict,
     
     return stats
 
-def summary_tristroke_analysis(
+def layout_speed(
         layout: layout.Layout, tricatdata: dict, medians: dict, 
         trigram_freqs: dict, tribreakdowns: dict):
     """Like tristroke_analysis but instead of breaking down by category, only
@@ -2018,12 +2109,12 @@ def summary_tristroke_analysis(
     
     Returns (speed, known_prop)"""
 
-    total_freq, known_freq, total_time = raw_summary_tristroke_analysis(
+    total_freq, known_freq, total_time = layout_speed_raw(
         layout, tricatdata, medians, trigram_freqs, tribreakdowns)
 
     return (total_time/total_freq, known_freq/total_freq)
 
-def raw_summary_tristroke_analysis(
+def layout_speed_raw(
         layout: layout.Layout, tricatdata: dict, 
         medians: dict, trigram_freqs: dict, tribreakdowns: dict):
     total_freq = 0
@@ -2035,26 +2126,16 @@ def raw_summary_tristroke_analysis(
         except KeyError: # contains key not in layout
             continue
         freq = trigram_freqs[trigram]
-        try:
-            speed = medians[ts][2]
+        speed, is_exact = speed_of_tristroke(
+            ts, medians, tribreakdowns, tricatdata)
+        if is_exact:
             known_freq += freq
-        except KeyError: # Use breakdown data instead
-            cat = tristroke_category(ts)
-            try:
-                speed = 0.0
-                bs1 = Nstroke(ts.note, ts.fingers[:2], ts.coords[:2])
-                speed += tribreakdowns[cat][bs1][0]
-                bs2 = Nstroke(ts.note, ts.fingers[1:], ts.coords[1:])
-                speed += tribreakdowns[cat][bs2][0]
-            except KeyError: # Use general category speed
-                speed = tricatdata[cat][0]
-        finally:
-            total_time += speed * freq
-            total_freq += freq
+        total_time += speed * freq
+        total_freq += freq
     return (total_freq, known_freq, total_time)
 
 def finger_analysis(layout: layout.Layout, tricatdata: dict, medians: dict,
-    trigram_freqs: dict):
+    trigram_freqs: dict, tribreakdowns: dict):
     """Returns dict[finger, (freq, exact, avg_ms, ms)]
     
     tricatdata is the output of tristroke_category_data(). That is,
@@ -2095,16 +2176,13 @@ def finger_analysis(layout: layout.Layout, tricatdata: dict, medians: dict,
             if finger != Finger.UNKNOWN:
                 cats.add(hand_names[finger.name[0]])
                 cats.add(finger_names[finger.name[1]])
-        try:
-            speed = medians[tristroke][2]
-            for cat in cats:
-                raw_stats[cat][1] += tfreq
-        except KeyError: # no entry in known medians
-            speed = tricatdata[tristroke_category(tristroke)][0]
-        finally:
-            for cat in cats:
-                raw_stats[cat][2] += speed * tfreq
-                raw_stats[cat][0] += tfreq
+        speed, is_exact = speed_of_tristroke(
+            tristroke, medians, tribreakdowns, tricatdata)
+        if is_exact:
+            raw_stats[cat][1] += tfreq
+        for cat in cats:
+            raw_stats[cat][2] += speed * tfreq
+            raw_stats[cat][0] += tfreq
     processed = {}
     for cat in raw_stats:
         processed[cat] = (
@@ -2115,6 +2193,59 @@ def finger_analysis(layout: layout.Layout, tricatdata: dict, medians: dict,
             raw_stats[cat][2]/total_tfreq if total_tfreq else 0, 
         )
     return processed
+
+def key_analysis(layout: layout.Layout, tricatdata: dict, medians: dict,
+    trigram_freqs: dict, tribreakdowns: dict):
+    """Like layout_tristroke_analysis but divided up by key.
+    Each key only has data for trigrams that contain that key.
+    
+    Returns a result such that result[key][category] gives 
+    (freq_prop, known_prop, speed, contribution)"""
+    # {category: [total_time, exact_freq, total_freq]}
+    raw = {key: {category: [0,0,0] for category in all_tristroke_categories}
+        for key in layout.keys.values()}
+
+    total_freq = 0
+    
+    for trigram in trigram_freqs:
+        try:
+            ts = layout.to_nstroke(trigram)
+        except KeyError: # contains key not in layout
+            continue
+        cat = tristroke_category(ts)
+        freq = trigram_freqs[trigram]
+        speed, is_exact = speed_of_tristroke(
+            ts, medians, tribreakdowns, tricatdata)
+        for key in set(trigram):
+            if is_exact:
+                raw[key][cat][1] += freq
+            raw[key][cat][0] += speed * freq
+            raw[key][cat][2] += freq
+        total_freq += freq
+    if not total_freq:
+            total_freq = 1
+    stats = {key: dict() for key in raw}
+    for key in raw:
+        # fill in sum categories
+        for cat in all_tristroke_categories:
+            if not raw[key][cat][2]:
+                applicable = applicable_function(cat)
+                for othercat in all_tristroke_categories:
+                    if raw[key][othercat][2] and applicable(othercat):
+                        for i in range(3):
+                            raw[key][cat][i] += raw[key][othercat][i]
+        # process stats
+        for cat in all_tristroke_categories:
+            cat_freq = raw[key][cat][2]
+            if not cat_freq:
+                cat_freq = 1
+            freq_prop = raw[key][cat][2] / total_freq
+            known_prop = raw[key][cat][1] / cat_freq
+            cat_speed = raw[key][cat][0] / cat_freq
+            contribution = raw[key][cat][0] / total_freq
+            stats[key][cat] = (freq_prop, known_prop, cat_speed, contribution)
+    
+    return stats
 
 def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict, 
         trigram_freqs: dict, tribreakdowns: dict, pins: Iterable[str] = tuple(), 
@@ -2128,7 +2259,7 @@ def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict,
     for key in pins:
         swappable.discard(key)
 
-    total_freq, known_freq, total_time = raw_summary_tristroke_analysis(
+    total_freq, known_freq, total_time = layout_speed_raw(
         lay, tricatdata, medians, trigram_freqs, tribreakdowns
     )
 
@@ -2265,7 +2396,7 @@ def anneal(layout_: layout.Layout, tricatdata: dict, medians: dict,
         suffix: str = "-annealed", iterations: int = 10000):
     """pinky_cap is max letter freq. Layouts can get weird without it.
     
-    Returns (layout, i, temperature, delta, score, swap) 
+    Yields (layout, i, temperature, delta, score, swap) 
     when a swap is successful."""
     lay = layout.Layout(layout_.name, False, repr(layout_))
     if not lay.name.endswith(suffix):
@@ -2276,7 +2407,7 @@ def anneal(layout_: layout.Layout, tricatdata: dict, medians: dict,
         swappable.discard(key)
     swappable = tuple(swappable)
 
-    total_freq, known_freq, total_time = raw_summary_tristroke_analysis(
+    total_freq, known_freq, total_time = layout_speed_raw(
         lay, tricatdata, medians, trigram_freqs, tribreakdowns
     )
 

@@ -3,9 +3,8 @@
 /.vscode
 /data/*.csv
 /output/*
-/layouts/*-ascended
-/layouts/*-best
-/layouts/*-anneal*
+/layouts/*
 /old-layouts
 session_settings.json
 todo
+fingermaps/kathy
