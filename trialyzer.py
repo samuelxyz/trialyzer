@@ -2183,9 +2183,9 @@ def finger_analysis(layout: layout.Layout, tricatdata: dict, medians: dict,
                 cats.add(finger_names[finger.name[1]])
         speed, is_exact = speed_of_tristroke(
             tristroke, medians, tribreakdowns, tricatdata)
-        if is_exact:
-            raw_stats[cat][1] += tfreq
         for cat in cats:
+            if is_exact:
+                raw_stats[cat][1] += tfreq
             raw_stats[cat][2] += speed * tfreq
             raw_stats[cat][0] += tfreq
     processed = {}
@@ -2378,7 +2378,8 @@ def swapped_score(
             total_freq += tfreq
         
     # pinky usage is calculated because otherwise layouts can get ridiculous
-    pinky_lfreqs = [0,0]
+    freq_lp = 0
+    freq_rp = 0
     total_lfreq = 0
     for finger in lay.fingermap.cols:
         for pos in lay.fingermap.cols[finger]:
@@ -2393,12 +2394,12 @@ def swapped_score(
                 continue
             total_lfreq += lfreq
             if finger == finger.RP:
-                pinky_lfreqs[0] += lfreq
+                freq_rp += lfreq
             elif finger == finger.LP:
-                pinky_lfreqs[1] += lfreq
+                freq_lp += lfreq
     
     return (total_freq, known_freq, total_time, 
-        swap, max(pinky_lfreqs)/total_lfreq)
+        swap, max(freq_lp, freq_rp)/total_lfreq)
 
 def anneal(layout_: layout.Layout, tricatdata: dict, medians: dict, 
         trigram_freqs: dict, tribreakdowns: dict, 
