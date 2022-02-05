@@ -860,7 +860,7 @@ def main(stdscr: curses.window):
 
     def cmd_improve():
         nonlocal analysis_target
-        pinky_cap = 0.18 # reasonable default
+        pinky_cap = 0.1 # reasonable default
         for item in args:
             try:
                 pinky_cap = float(item)
@@ -935,7 +935,7 @@ def main(stdscr: curses.window):
                 break
             except ValueError:
                 continue
-        pinky_cap = 0.18 # reasonable default
+        pinky_cap = 0.1 # reasonable default
         for item in args:
             try:
                 pinky_cap = float(item)
@@ -985,8 +985,9 @@ def main(stdscr: curses.window):
 
         for iteration in range(num_iterations):
             working_lay.shuffle(pins=pins)
-            while working_lay.finger_letter_frequency(
-                    (Finger.LP, Finger.RP)) > pinky_cap:
+            finger_freqs = working_lay.frequency_by_finger()
+            while (max(finger_freqs[Finger.LP], finger_freqs[Finger.RP]) 
+                    > pinky_cap):
                 working_lay.shuffle(pins=pins)
             initial_score = layout_speed(
                 working_lay, tricatdata, 
@@ -1038,7 +1039,7 @@ def main(stdscr: curses.window):
                 break
             except ValueError:
                 continue
-        pinky_cap = 0.18 # reasonable default
+        pinky_cap = 0.1 # reasonable default
         for item in args:
             try:
                 pinky_cap = float(item)
@@ -1378,10 +1379,14 @@ def main(stdscr: curses.window):
             for layout_name in to_delete:
                 del layout.Layout.loaded[layout_name]
             message("Reloaded all layouts", gui_util.green)
-        # If either of these were deleted just let it crash lol
-        # too lazy to deal with that
-        user_layout = layout.get_layout(user_layout.name)
-        analysis_target = layout.get_layout(analysis_target.name)
+        try:
+            user_layout = layout.get_layout(user_layout.name)
+        except OSError:
+            user_layout = layout.get_layout("qwerty")
+        try:
+            analysis_target = layout.get_layout(analysis_target.name)
+        except OSError:
+            analysis_target = layout.get_layout("qwerty")
 
     def cmd_draw():
         coords = analysis_target.coords # dict[key, coord]
@@ -2267,7 +2272,9 @@ def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict,
         corp_data = json.load(file)
     lfreqs = corp_data["letters"]
 
-    initial_pinky_freq = lay.finger_letter_frequency((Finger.RP, Finger.LP))
+    finger_freqs = lay.frequency_by_finger()
+    initial_pinky_freq = max(
+        finger_freqs[Finger.RP], finger_freqs[Finger.LP])
     if pinky_cap < initial_pinky_freq:
         pinky_cap = initial_pinky_freq
     
@@ -2313,7 +2320,7 @@ def swapped_score(
         lay: layout.Layout, trigram_freqs: dict, medians: dict,
         tricatdata: dict, lfreqs: dict, tribreakdowns: dict):
     # swaps should be length 2
-    """(total_freq, known_freq, total_time, swap, pinky%)"""
+    """(total_freq, known_freq, total_time, swap, higher_pinky%)"""
 
     def swapped_ngram(ngram):
         swapped = []
@@ -2371,7 +2378,7 @@ def swapped_score(
             total_freq += tfreq
         
     # pinky usage is calculated because otherwise layouts can get ridiculous
-    pinky_lfreq = 0
+    pinky_lfreqs = [0,0]
     total_lfreq = 0
     for finger in lay.fingermap.cols:
         for pos in lay.fingermap.cols[finger]:
@@ -2385,10 +2392,13 @@ def swapped_score(
             except KeyError:
                 continue
             total_lfreq += lfreq
-            if finger in (Finger.RP, Finger.LP):
-                pinky_lfreq += lfreq
+            if finger == finger.RP:
+                pinky_lfreqs[0] += lfreq
+            elif finger == finger.LP:
+                pinky_lfreqs[1] += lfreq
     
-    return (total_freq, known_freq, total_time, swap, pinky_lfreq/total_lfreq)
+    return (total_freq, known_freq, total_time, 
+        swap, max(pinky_lfreqs)/total_lfreq)
 
 def anneal(layout_: layout.Layout, tricatdata: dict, medians: dict, 
         trigram_freqs: dict, tribreakdowns: dict, 
@@ -2415,7 +2425,9 @@ def anneal(layout_: layout.Layout, tricatdata: dict, medians: dict,
         corp_data = json.load(file)
     lfreqs = corp_data["letters"]
 
-    initial_pinky_freq = lay.finger_letter_frequency((Finger.RP, Finger.LP))
+    finger_freqs = lay.frequency_by_finger()
+    initial_pinky_freq = max(
+        finger_freqs[Finger.RP], finger_freqs[Finger.LP])
     if pinky_cap < initial_pinky_freq:
         pinky_cap = initial_pinky_freq
     

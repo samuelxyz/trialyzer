@@ -200,15 +200,12 @@ class Layout:
         for _ in range(swaps):
             self.swap(random.sample(keys, k=2))
 
-    def finger_letter_frequency(
-            self, fingers: Iterable[fingermap.Finger], lfreqs = ...):
+    def frequency_by_finger(self, lfreqs = ...):
         if lfreqs == ...:
             with open("data/shai.json") as file:
                 corp_data = json.load(file)
             lfreqs = corp_data["letters"]
-        fingers = tuple(fingers)
-        of_interest_lfreq = 0
-        total_lfreq = 0
+        fing_freqs = {finger: 0.0 for finger in list(Finger)}
         for finger in self.fingermap.cols:
             for pos in self.fingermap.cols[finger]:
                 try:
@@ -216,10 +213,13 @@ class Layout:
                     lfreq = lfreqs[key]
                 except KeyError:
                     continue
-                total_lfreq += lfreq
-                if finger in fingers:
-                    of_interest_lfreq += lfreq
-        return of_interest_lfreq/total_lfreq if total_lfreq else 0
+                fing_freqs[finger] += lfreq
+        total_lfreq = sum(fing_freqs.values())
+        if not total_lfreq:
+            return {finger: 0.0 for finger in fing_freqs}
+        for finger in fing_freqs:
+            fing_freqs[finger] /= total_lfreq
+        return fing_freqs
 
 def get_layout(name: str) -> Layout:
     if name not in Layout.loaded:
