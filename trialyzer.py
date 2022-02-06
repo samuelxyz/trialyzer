@@ -8,7 +8,8 @@ import os
 import math
 import json
 import time
-from typing import Iterable
+from typing import Callable, Iterable
+import typing
 
 from board import Coord
 from fingermap import Finger
@@ -2033,28 +2034,34 @@ def layout_bistroke_analysis(layout: layout.Layout, bicatdata: dict, bi_medians:
     
     return stats
 
-def speed_of_tristroke(ts: Tristroke, medians: dict, tribreakdowns: dict,
+def tristroke_speed_calculator(medians: dict, tribreakdowns: dict,
         tricatdata: dict):
-    """Determines the speed of the tristroke. Uses data from medians if it exists;
-    if not, uses tribreakdowns as a fallback, and if that still fails then
+    """Returns a function speed(ts) which determines the speed of the 
+    tristroke ts. Uses data from medians if it exists; if not, uses 
+    tribreakdowns as a fallback, and if that still fails then
     uses the average speed of the category from tricatdata.
+    Caching is used for additional speed.
     
-    Returns (duration in ms, is_exact)"""
-    cat = tristroke_category(ts)
-    try:
-        speed = medians[ts][2]
-        is_exact = True
-    except KeyError: # Use breakdown data instead
-        is_exact = False
+    The function returns (duration in ms, is_exact)"""
+    @functools.cache
+    def speed_func(ts: Tristroke):
+        cat = tristroke_category(ts)
         try:
-            speed = 0.0
-            bs1 = Nstroke(ts.note, ts.fingers[:2], ts.coords[:2])
-            speed += tribreakdowns[cat][bs1][0]
-            bs2 = Nstroke(ts.note, ts.fingers[1:], ts.coords[1:])
-            speed += tribreakdowns[cat][bs2][0]
-        except KeyError: # Use general category speed
-            speed = tricatdata[cat][0]
-    return (speed, is_exact)
+            speed = medians[ts][2]
+            is_exact = True
+        except KeyError: # Use breakdown data instead
+            is_exact = False
+            try:
+                speed = 0.0
+                bs1 = Nstroke(ts.note, ts.fingers[:2], ts.coords[:2])
+                speed += tribreakdowns[cat][bs1][0]
+                bs2 = Nstroke(ts.note, ts.fingers[1:], ts.coords[1:])
+                speed += tribreakdowns[cat][bs2][0]
+            except KeyError: # Use general category speed
+                speed = tricatdata[cat][0]
+        return (speed, is_exact)
+
+    return speed_func
 
 def layout_tristroke_analysis(layout: layout.Layout, tricatdata: dict, medians: dict,
     trigram_freqs: dict, tribreakdowns: dict):
@@ -2067,6 +2074,7 @@ def layout_tristroke_analysis(layout: layout.Layout, tricatdata: dict, medians: 
     dict[Tristroke, (float, float, float)]"""
     # {category: [total_time, exact_freq, total_freq]}
     by_category = {category: [0,0,0] for category in all_tristroke_categories}
+    speed_func = tristroke_speed_calculator(medians, tribreakdowns, tricatdata)
     for trigram in trigram_freqs:
         try:
             ts = layout.to_nstroke(trigram)
@@ -2074,8 +2082,7 @@ def layout_tristroke_analysis(layout: layout.Layout, tricatdata: dict, medians: 
             continue
         cat = tristroke_category(ts)
         freq = trigram_freqs[trigram]
-        speed, is_exact = speed_of_tristroke(
-            ts, medians, tribreakdowns, tricatdata)
+        speed, is_exact = speed_func(ts)
         if is_exact:
             by_category[cat][1] += freq
         by_category[cat][0] += speed * freq
@@ -2125,14 +2132,14 @@ def layout_speed_raw(
     total_freq = 0
     known_freq = 0
     total_time = 0
+    speed_func = tristroke_speed_calculator(medians, tribreakdowns, tricatdata)
     for trigram in trigram_freqs:
         try:
             ts = layout.to_nstroke(trigram)
         except KeyError: # contains key not in layout
             continue
         freq = trigram_freqs[trigram]
-        speed, is_exact = speed_of_tristroke(
-            ts, medians, tribreakdowns, tricatdata)
+        speed, is_exact = speed_func(ts)
         if is_exact:
             known_freq += freq
         total_time += speed * freq
@@ -2156,6 +2163,7 @@ def finger_analysis(layout: layout.Layout, tricatdata: dict, medians: dict,
     raw_stats = {finger.name: [0,0,0,0] for finger in Finger}
     raw_stats.update({hand_names[hand]: [0,0,0,0] for hand in hand_names})
     raw_stats.update({finger_names[fingcat]: [0,0,0,0] for fingcat in finger_names})
+    speed_func = tristroke_speed_calculator(medians, tribreakdowns, tricatdata)
     for key in layout.keys.values():
         try:
             total_lfreq += letter_freqs[key]
@@ -2181,8 +2189,7 @@ def finger_analysis(layout: layout.Layout, tricatdata: dict, medians: dict,
             if finger != Finger.UNKNOWN:
                 cats.add(hand_names[finger.name[0]])
                 cats.add(finger_names[finger.name[1]])
-        speed, is_exact = speed_of_tristroke(
-            tristroke, medians, tribreakdowns, tricatdata)
+        speed, is_exact = speed_func(tristroke)
         for cat in cats:
             if is_exact:
                 raw_stats[cat][1] += tfreq
@@ -2211,6 +2218,8 @@ def key_analysis(layout: layout.Layout, tricatdata: dict, medians: dict,
         for key in layout.keys.values()}
 
     total_freq = 0
+
+    speed_func = tristroke_speed_calculator(medians, tribreakdowns, tricatdata)
     
     for trigram in trigram_freqs:
         try:
@@ -2219,8 +2228,7 @@ def key_analysis(layout: layout.Layout, tricatdata: dict, medians: dict,
             continue
         cat = tristroke_category(ts)
         freq = trigram_freqs[trigram]
-        speed, is_exact = speed_of_tristroke(
-            ts, medians, tribreakdowns, tricatdata)
+        speed, is_exact = speed_func(ts)
         for key in set(trigram):
             if is_exact:
                 raw[key][cat][1] += freq
@@ -2268,6 +2276,9 @@ def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict,
         lay, tricatdata, medians, trigram_freqs, tribreakdowns
     )
 
+    speed_func = tristroke_speed_calculator(medians, tribreakdowns, tricatdata)
+    speed_dict = {ts: speed_func(ts) for ts in lay.all_nstrokes()}
+
     with open("data/shai.json") as file:
         corp_data = json.load(file)
     lfreqs = corp_data["letters"]
@@ -2293,7 +2304,7 @@ def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict,
             #         best_data = data
             swaps = itertools.combinations(swappable, 2)
             args = ((swap, total_freq, known_freq, total_time, lay,
-                     trigram_freqs, medians, tricatdata, lfreqs, tribreakdowns)
+                     trigram_freqs, speed_dict, lfreqs)
                 for swap in swaps)
             datas = pool.starmap(swapped_score, args, 200)
             try:
@@ -2317,11 +2328,11 @@ def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict,
 
 def swapped_score(
         swap: tuple[str], total_freq, known_freq, total_time,
-        lay: layout.Layout, trigram_freqs: dict, medians: dict,
-        tricatdata: dict, lfreqs: dict, tribreakdowns: dict):
+        lay: layout.Layout, trigram_freqs: dict, 
+        speed_func: typing.Union[Callable, dict], lfreqs: dict):
     # swaps should be length 2
     """(total_freq, known_freq, total_time, swap, higher_pinky%)"""
-
+    
     def swapped_ngram(ngram):
         swapped = []
         for key in ngram:
@@ -2342,40 +2353,24 @@ def swapped_score(
         # remove effect of original tristroke
         ts = lay.to_nstroke(ngram)
         try:
-            speed = medians[ts][2]
+            speed, is_known = speed_func(ts)
+        except TypeError:
+            speed, is_known = speed_func[ts]
+        if is_known:
             known_freq -= tfreq
-        except KeyError: # Use breakdown data instead
-            cat = tristroke_category(ts)
-            try:
-                speed = 0.0
-                bs1 = Nstroke(ts.note, ts.fingers[:2], ts.coords[:2])
-                speed += tribreakdowns[cat][bs1][0]
-                bs2 = Nstroke(ts.note, ts.fingers[1:], ts.coords[1:])
-                speed += tribreakdowns[cat][bs2][0]
-            except KeyError: # Use general category speed
-                speed = tricatdata[cat][0]
-        finally:
-            total_time -= speed * tfreq
-            total_freq -= tfreq
+        total_time -= speed * tfreq
+        total_freq -= tfreq
         
         # add effect of swapped tristroke
         ts = lay.to_nstroke(swapped_ngram(ngram))
         try:
-            speed = medians[ts][2]
+            speed, is_known = speed_func(ts)
+        except TypeError:
+            speed, is_known = speed_func[ts]
+        if is_known:
             known_freq += tfreq
-        except KeyError: # Use breakdown data instead
-            cat = tristroke_category(ts)
-            try:
-                speed = 0.0
-                bs1 = Nstroke(ts.note, ts.fingers[:2], ts.coords[:2])
-                speed += tribreakdowns[cat][bs1][0]
-                bs2 = Nstroke(ts.note, ts.fingers[1:], ts.coords[1:])
-                speed += tribreakdowns[cat][bs2][0]
-            except KeyError: # Use general category speed
-                speed = tricatdata[cat][0]
-        finally:
-            total_time += speed * tfreq
-            total_freq += tfreq
+        total_time += speed * tfreq
+        total_freq += tfreq
         
     # pinky usage is calculated because otherwise layouts can get ridiculous
     freq_lp = 0
@@ -2422,6 +2417,8 @@ def anneal(layout_: layout.Layout, tricatdata: dict, medians: dict,
         lay, tricatdata, medians, trigram_freqs, tribreakdowns
     )
 
+    speed_func = tristroke_speed_calculator(medians, tribreakdowns, tricatdata)
+
     with open("data/shai.json") as file:
         corp_data = json.load(file)
     lfreqs = corp_data["letters"]
@@ -2442,7 +2439,7 @@ def anneal(layout_: layout.Layout, tricatdata: dict, medians: dict,
         temperature = T0*math.exp(-k*i/iterations)
         swap = random.sample(swappable, k=2)
         data = swapped_score(swap, total_freq, known_freq, total_time,
-            lay, trigram_freqs, medians, tricatdata, lfreqs, tribreakdowns)
+            lay, trigram_freqs, speed_func, lfreqs)
         score = data[2]/data[0]
         delta = score - scores[-1]
         
