@@ -472,6 +472,46 @@ def main(stdscr: curses.window):
             message("\n" + analysis_target.name + "\n"
                     + repr(analysis_target), win=right_pane)
 
+    def cmd_list():
+        try:
+            page_num = int(args[0])
+        except IndexError:
+            page_num = 1
+        except ValueError:
+            message("Usage: list [page]", gui_util.red)
+            return
+        layout_file_list = scan_dir()
+        if not layout_file_list:
+            message("No layouts found in /layouts/", gui_util.red)
+            return
+        message(f"{len(layout_file_list)} layouts found", win=right_pane)
+        first_row = 3
+        num_rows = right_pane.getmaxyx()[0] - first_row
+        names = [str(layout.get_layout(filename)) 
+            for filename in layout_file_list]
+        col_width = len(max(names, key=len))
+        padding = 3
+        num_cols =  (1 + 
+            (right_pane.getmaxyx()[1] - col_width) // (col_width + padding))
+        num_pages = math.ceil(len(names) / (num_rows * num_cols))
+        if page_num > num_pages:
+            page_num = num_pages
+        elif page_num <= 0:
+            page_num = 1
+        message(f"Page {page_num} of {num_pages}"
+            + " - Use list [page] to view others" * (num_pages > 1)
+            + "\n---", 
+            win=right_pane)
+        first_index = (page_num - 1) * num_rows * num_cols
+        last_index = min(len(names), first_index + num_rows * num_cols)
+        right_pane.scroll(num_rows)
+        for i in range(last_index - first_index):
+            right_pane.addstr(
+                first_row + i % num_rows, 
+                (i // num_rows) * (col_width + padding),
+                names[first_index + i])
+        right_pane.refresh()
+
     def cmd_use():
         layout_name = " ".join(args)
         if layout_name: # set layout
@@ -485,7 +525,7 @@ def main(stdscr: curses.window):
                 message(f"/layouts/{layout_name} was not found.", 
                         gui_util.red)
 
-    def cmd_analyze():
+    def cmd_analyze(show_scissor: bool = False):
         if args:
             layout_name = " ".join(args)
             try:
@@ -523,8 +563,18 @@ def main(stdscr: curses.window):
             "\nTristroke categories         freq    exact   avg_ms      ms")
         bi_header_line = (
             "\nBistroke categories          freq    exact   avg_ms      ms")
-        print_analysis_stats(tri_stats, tri_header_line)
-        print_analysis_stats(bi_stats, bi_header_line)
+
+        if show_scissor:
+            tri_disp = tri_stats
+            bi_disp = bi_stats
+        else:
+            tri_disp = {cat: vals for (cat, vals) in tri_stats.items()
+                if vals[0] and ("scissor" not in cat or cat.startswith("."))}
+            bi_disp = {cat: vals for (cat, vals) in bi_stats.items()
+                if vals[0] and ("scissor" not in cat or cat.startswith("."))}
+
+        print_analysis_stats(tri_disp, tri_header_line)
+        print_analysis_stats(bi_disp, bi_header_line)
 
     def cmd_dump():
         if args:
@@ -1144,8 +1194,9 @@ def main(stdscr: curses.window):
             "h[elp]: Show this list",
             "reload [layout name]: Reload layout(s) from files",
             "precision <n|full>: "
-                "Analyze using the top n trigrams, or all",
+                "Set analysis to use the top n trigrams, or all",
             "l[ayout] [layout name]: View layout",
+            "list [page]: List all layouts",
             "q[uit]",
             "----Typing data commands----",
             "u[se] <layout name>: Set layout used in typing test",
@@ -1155,6 +1206,7 @@ def main(stdscr: curses.window):
             "-----Analysis commands-----",
             "target <layout name>: Set analysis target",
             "a[nalyze] [layout name]: Detailed layout analysis",
+            "fulla[nalyze] [layout name]: Like analyze but even more detailed",
             "f[ingers] [layout name]: Hand/finger usage breakdown",
             "r[ank]: Rank all layouts by wpm",
             "rt <min|max> <freq|exact|avg_ms|ms> [category]: "
@@ -1509,10 +1561,14 @@ def main(stdscr: curses.window):
                 cmd_target()
             elif command in ("l", "layout"):
                 cmd_layout()
+            elif command in ("list",):
+                cmd_list()
             elif command in ("u", "use"):
                 cmd_use()
             elif command in ("a", "analyze"):
                 cmd_analyze()
+            elif command in ("fulla", "fullanalyze"):
+                cmd_analyze(True)
             elif command == "dump":
                 cmd_dump()
             elif command in ("f", "fingers"):
