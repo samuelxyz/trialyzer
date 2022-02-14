@@ -187,7 +187,7 @@ def main(stdscr: curses.window):
                 if category in category_display_names else category)
             pad_char = " "
             if category.endswith(".") or not category:
-                category_name += " (total) "
+                category_name += " (total)"
                 pad_char = "-"
             if not category.startswith("."):
                 if "." not in category_name:
@@ -232,7 +232,7 @@ def main(stdscr: curses.window):
                 if category in category_display_names else category)
             pad_char = " "
             if category.endswith(".") or not category:
-                category_name += " (total) "
+                category_name += " (total)"
                 pad_char = "-"
             if not category.startswith("."):
                 if "." not in category_name:
@@ -638,6 +638,7 @@ def main(stdscr: curses.window):
                     row.extend(bidata[cat])
                 row.extend(repr(lay).split("\n"))
                 w.writerow(row)
+        curses.beep()
         message(f"Done\nSaved as {filename}", gui_util.green, right_pane)
 
     def cmd_dump_medians():
@@ -750,6 +751,7 @@ def main(stdscr: curses.window):
                     # TODO something better than just 
                     # cutting off the list like this lmao
             right_pane.refresh()
+        curses.beep()
         message(f"Ranking complete", gui_util.green)
         if output:
             header = ["name", "avg_ms", "exact"]
@@ -868,6 +870,7 @@ def main(stdscr: curses.window):
                     # TODO something better than just 
                     # cutting off the list like this lmao
             right_pane.refresh()
+        curses.beep()
         message(f"Ranking complete", gui_util.green)
 
     def cmd_bistroke():
@@ -961,6 +964,7 @@ def main(stdscr: curses.window):
             message(f"Swap #{num_swaps} ({swap[0]} {swap[1]}) results "
                 f"in avg_ms = {score:.4f}\n"
                 + repr_, win=right_pane)
+        curses.beep()
         message(f"Local optimum reached", gui_util.green, right_pane)
         
         if optimized is not target_layout:
@@ -1069,9 +1073,10 @@ def main(stdscr: curses.window):
                 best_score = score
                 with open(f"layouts/{optimized.name}", "w") as file:
                         file.write(repr_)
-        message("\nSet as analysis target",
+        message("\nSet best as analysis target",
             gui_util.green, right_pane)
         # reload from file in case
+        curses.beep()
         try:
             layout.Layout.loaded[optimized.name] = layout.Layout(
                 optimized.name)
@@ -1152,6 +1157,7 @@ def main(stdscr: curses.window):
         with open(path_, "w") as file:
                 file.write(repr(optimized))
         optimized.name = path_[8:]
+        curses.beep()
         message(
             f"Annealing complete\nSaved as {path_}"
             "\nSet as analysis target", 
