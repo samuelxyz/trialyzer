@@ -268,12 +268,12 @@ def main(stdscr: curses.window):
         pairs = gui_util.apply_scales(stats, col_settings)
 
         categories = []
-        for hand in ("R", "L"):
-            categories.append(hand_names[hand])
-        for finger in ("T", "I", "M", "R", "P"):
-            categories.append(finger_names[finger])
-        for finger in Finger:
-            categories.append(finger.name)
+        categories.extend(
+            name for name in hand_names.values() if name in stats)
+        categories.extend(
+            name for name in finger_names.values() if name in stats)
+        categories.extend(
+            finger.name for finger in Finger if finger.name in stats)
 
         longest = len(max(categories, key=len)) + 2
 
@@ -525,7 +525,7 @@ def main(stdscr: curses.window):
                 message(f"/layouts/{layout_name} was not found.", 
                         gui_util.red)
 
-    def cmd_analyze(show_scissor: bool = False):
+    def cmd_analyze(show_all: bool = False):
         if args:
             layout_name = " ".join(args)
             try:
@@ -564,16 +564,20 @@ def main(stdscr: curses.window):
         bi_header_line = (
             "\nBistroke categories          freq    exact   avg_ms      ms")
 
-        if show_scissor:
+        if show_all:
             tri_disp = tri_stats
             bi_disp = bi_stats
         else:
             tri_disp = {cat: vals for (cat, vals) in tri_stats.items()
-                if vals[0] and ("scissor" not in cat or cat.startswith("."))}
+                if vals[0] and not (
+                    "scissor" in cat[2:] or "sfr" in cat or "sft" in cat)}
             bi_disp = {cat: vals for (cat, vals) in bi_stats.items()
                 if vals[0] and ("scissor" not in cat or cat.startswith("."))}
 
         print_analysis_stats(tri_disp, tri_header_line)
+        if not show_all:
+            gui_util.insert_line_bottom("Use command \"fulla[nalyze]\" "
+                "to see remaining categories", right_pane)
         print_analysis_stats(bi_disp, bi_header_line)
 
     def cmd_dump():
@@ -688,7 +692,7 @@ def main(stdscr: curses.window):
             medians, trigram_freqs, tristroke_breakdowns(medians))
         gui_util.insert_line_bottom("\nHand/finger breakdown for "
             f"{target_layout}", right_pane)
-        print_finger_stats(finger_stats)
+        print_finger_stats({k:v for k, v in finger_stats.items() if v[0]})
 
     def cmd_rank():
         output = False
@@ -704,21 +708,45 @@ def main(stdscr: curses.window):
         data = {}
         csvdata = load_csv_data(active_speeds_file)
         width = max(len(name) for name in layout_file_list)
-        gui_util.insert_line_bottom(
-            "\nLayout" + " "*(width-3) + "avg_ms   wpm    exact", right_pane)
-        ymax = right_pane.getmaxyx()[0]
+        padding = 3
+        col_width = width + 18 + 6
+        header = "Layout" + " "*(width-3) + "avg_ms   wpm    exact"
+        gui_util.insert_line_bottom(f"\n{header}", right_pane)
+        ymax, xmax = right_pane.getmaxyx()
         first_row = ymax - len(layouts) - 2
         if first_row < 1:
             first_row = 1
         right_pane.scroll(min(ymax-1, len(layouts) + 2))
+        num_cols = (xmax + padding)//(col_width + padding)
 
         col_settings = (
-            {"transform": math.sqrt, "worst": max, "best": min}, # avg_ms
-            {"transform": math.sqrt}, # exact
+            {"transform": math.sqrt, "worst": gui_util.MAD_z(5), 
+                "best": gui_util.MAD_z(-5)}, # avg_ms
+            {"transform": math.sqrt, "best": gui_util.MAD_z(5), 
+                "worst": gui_util.MAD_z(-5)}, # exact
         )
 
-        num_displayed = ymax - first_row
+        num_rows = ymax - first_row
 
+        def print_row():
+            nonlocal row
+            nonlocal col
+            right_pane.move(row, col)
+            right_pane.clrtoeol()
+            right_pane.addstr(
+                row, col, f"{lay:{width}s}")
+            right_pane.addstr( # avg_ms
+                row, col+width+3, f"{data[lay][0]:6.2f}",
+                pairs[0][lay])
+            right_pane.addstr( # wpm
+                row, col+width+12, f"{int(24000/data[lay][0]):3}",
+                pairs[0][lay])
+            right_pane.addstr( # exact
+                row, col+width+18, f"{data[lay][1]:6.2%}",
+                pairs[1][lay])
+            row += 1
+
+        # analyze all
         for lay in layouts:
             medians = tristroke_medians(csvdata, lay)
             tricatdata = tristroke_category_data(medians)
@@ -728,28 +756,23 @@ def main(stdscr: curses.window):
             row = first_row
             sorted_ = list(sorted(data, key=lambda d: data[d][0]))
             displayed = {sorted_[i]: data[sorted_[i]] 
-                for i in range(len(sorted_)) if i < num_displayed}
+                for i in range(len(sorted_)) if i < num_rows*num_cols}
             pairs = gui_util.apply_scales(displayed, col_settings)
+            col = 0
+            # print ranking as of each step
             for lay in sorted_:
                 try:
-                    right_pane.move(row, 0)
-                    right_pane.clrtoeol()
-                    right_pane.addstr(
-                        row, 0, f"{lay:{width}s}")
-                    right_pane.addstr( # avg_ms
-                        row, width+3, f"{data[lay][0]:6.2f}",
-                        pairs[0][lay])
-                    right_pane.addstr( # wpm
-                        row, width+12, f"{int(24000/data[lay][0]):3}",
-                        pairs[0][lay])
-                    right_pane.addstr( # exact
-                        row, width+18, f"{data[lay][1]:6.2%}",
-                        pairs[1][lay])
-                    row += 1
+                    print_row()
                 except curses.error:
-                    continue # list went off the screen
-                    # TODO something better than just 
-                    # cutting off the list like this lmao
+                    row = first_row
+                    col += col_width + padding
+                    if width - 3 > right_pane.getmaxyx()[1]:
+                        break
+                    try:
+                        right_pane.addstr(row-1, col, header)
+                        print_row()
+                    except curses.error:
+                        break
             right_pane.refresh()
         curses.beep()
         message(f"Ranking complete", gui_util.green)
@@ -1572,7 +1595,9 @@ def main(stdscr: curses.window):
             elif command in ("u", "use"):
                 cmd_use()
             elif command in ("a", "analyze"):
+                cmd_layout()
                 cmd_analyze()
+                cmd_fingers()
             elif command in ("fulla", "fullanalyze"):
                 cmd_analyze(True)
             elif command == "dump":
@@ -2212,11 +2237,8 @@ def finger_analysis(layout: layout.Layout, tricatdata: dict, medians: dict,
     trigram_freqs: dict, tribreakdowns: dict):
     """Returns dict[finger, (freq, exact, avg_ms, ms)]
     
-    tricatdata is the output of tristroke_category_data(). That is,
-    dict[category: string, (speed: float, num_samples: int)]
-    
-    medians is the output of get_medians_for_layout(). That is, 
-    dict[Tristroke, (float, float, float)]"""
+    finger has possible values including anything in Finger.names, 
+    finger_names.values(), and hand_names.values()"""
     # {category: [cat_tfreq, known_tfreq, cat_ttime, lfreq]}
     with open("data/shai.json") as file:
         corpdata = json.load(file)

@@ -1,5 +1,6 @@
 import curses
-from typing import Iterable, Type
+from typing import Iterable
+import statistics
 
 red = 1
 green = 2
@@ -55,7 +56,8 @@ def apply_scales(rows: dict[str, Iterable], col_settings: Iterable[dict]):
     rows is a dict containing {rowname: (data0, data1, ..., dataN)}.
     col_settings is of length N, each entry being a dict with the keywords:
     "worst", "best", "scale_filter", "transform", "exclude_zeros". 
-    Defaults to min, max, lambda _: True, lambda x: x, True."""
+    Defaults to min, max, lambda _: True, lambda x: x, True.
+    "worst" and "best" are applied before the transform."""
     pairs = [dict() for _ in range(len(col_settings))]
     defaults = {"worst": min, "best": max, "scale_filter": lambda _: True, 
         "transform": lambda x: x, "exclude_zeros": True}
@@ -80,6 +82,34 @@ def apply_scales(rows: dict[str, Iterable], col_settings: Iterable[dict]):
                 worst, best, settings["transform"](rows[rowname][col]),
                 settings["exclude_zeros"]))
     return pairs
+
+def MAD_z(zscore: float, keep_within_data_values: bool = True):
+    """This is intended as an less outlier-sensitive alternative to 
+    max() and min().
+    
+    Returns a function which, given a distribution, returns the value
+    that would have the specified "z-score". Not a conventional z-score, as
+    it uses Median Absolute Deviation (median deviation from the median)
+    instead of standard deviation."""
+    
+    def func(data: Iterable):
+        data = tuple(data)
+        if not data:
+            return 0.0
+        median = statistics.median(data)
+        diffs = tuple(abs(d - median) for d in data)
+        mad = statistics.median(diffs)
+        raw = median + zscore*mad
+        if not keep_within_data_values:
+            return raw
+        else:
+            if zscore > 0:
+                return min(raw, max(data))
+            else:
+                return max(raw, min(data))
+
+    return func
+
 
 def insert_line_bottom(text: str, win: curses.window, attr: int = ...):
     """Scrolls a line in from the bottom of the window. 
