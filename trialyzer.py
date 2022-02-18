@@ -766,8 +766,6 @@ def main(stdscr: curses.window):
                 except curses.error:
                     row = first_row
                     col += col_width + padding
-                    if width - 3 > right_pane.getmaxyx()[1]:
-                        break
                     try:
                         right_pane.addstr(row-1, col, header)
                         print_row()
@@ -814,31 +812,59 @@ def main(stdscr: curses.window):
         message(f"Analyzing {len(layout_file_list)} layouts >>>",
             gui_util.green)
         width = max(len(name) for name in layout_file_list)
-        gui_util.insert_line_bottom(
-            f"\nRanking by tristroke category: {category_name}, "
-            f"{args[0]} {args[1]} first"
-            "\nLayout" + " "*(width-1) 
-            + "freq    exact   avg_ms      ms", right_pane)
-        ymax = right_pane.getmaxyx()[0]
+        padding = 3
+        header = (f"Ranking by tristroke category: {category_name}, "
+            f"{args[0]} {args[1]} first", 
+            "Layout" + " "*(width-1) + "freq    exact   avg_ms      ms")
+        headerjoin = '\n'.join(header) # not allowed inside f-string
+        gui_util.insert_line_bottom(f"\n{headerjoin}", right_pane)
+        col_width = width + 29 + 6
+        ymax, xmax = right_pane.getmaxyx()
         first_row = ymax - len(layout_file_list) - 3
         if first_row < 2:
             first_row = 2
         right_pane.scroll(min(ymax-2, len(layout_file_list) + 1))
         right_pane.refresh()
+        num_cols = (xmax + padding)//(col_width + padding)
         layouts = [layout.get_layout(name) for name in layout_file_list]
-        num_displayed = ymax - first_row
+        num_rows = ymax - first_row
 
         data = {}
         csvdata = load_csv_data(active_speeds_file)
 
         col_settings = [ # for colors
-            {"transform": math.sqrt}, # freq
-            {"transform": math.sqrt}, # exact
-            {"worst": max, "best": min}, # avg_ms
-            {"transform": math.sqrt, "worst": max, "best": min}, # ms
+            {"transform": math.sqrt, "best": gui_util.MAD_z(5), 
+                "worst": gui_util.MAD_z(-5)}, # freq
+            {"transform": math.sqrt, "best": gui_util.MAD_z(5), 
+                "worst": gui_util.MAD_z(-5)}, # exact
+            {"worst": gui_util.MAD_z(5), 
+                "best": gui_util.MAD_z(-5)}, # avg_ms
+            {"transform": math.sqrt, "worst": gui_util.MAD_z(5), 
+                "best": gui_util.MAD_z(-5)}, # ms
         ]
         col_settings_inverted = col_settings.copy()
         col_settings_inverted[0] = col_settings_inverted[3]
+
+        def print_row():
+            nonlocal row
+            nonlocal col
+            right_pane.move(row, col)
+            right_pane.clrtoeol()
+            right_pane.addstr(
+                row, col, f"{rowname:{width}s}   ")
+            right_pane.addstr( # freq
+                row, col+width+3, f"{rows[rowname][0]:>6.2%}",
+                pairs[0][rowname])
+            right_pane.addstr( # exact
+                row, col+width+12, f"{rows[rowname][1]:>6.2%}",
+                pairs[1][rowname])
+            right_pane.addstr( # avg_ms
+                row, col+width+21, f"{rows[rowname][2]:>6.1f}",
+                pairs[2][rowname])
+            right_pane.addstr( # ms
+                row, col+width+29, f"{rows[rowname][3]:>6.2f}",
+                pairs[3][rowname])
+            row += 1
         
         for lay in layouts:
             medians = tristroke_medians(csvdata, lay)
@@ -847,6 +873,7 @@ def main(stdscr: curses.window):
             data[lay.name] = layout_tristroke_analysis(
                 lay, tricatdata, medians, trigram_freqs, tribreakdowns)
             row = first_row
+            col = 0
             
             # color freq by whether the category is faster than total
             try:
@@ -861,7 +888,7 @@ def main(stdscr: curses.window):
                 data, key=lambda name: data[name][category][sorting_col], 
                 reverse=reverse_))
             rows = {name: data[name][category] 
-                for i, name in enumerate(names) if i < num_displayed}
+                for i, name in enumerate(names) if i < num_rows*num_cols}
             if invert:
                 pairs = gui_util.apply_scales(
                     rows, col_settings_inverted)    
@@ -871,27 +898,16 @@ def main(stdscr: curses.window):
             # printing
             for rowname in rows:
                 try:
-                    right_pane.move(row, 0)
-                    right_pane.clrtoeol()
-                    right_pane.addstr(
-                        row, 0, f"{rowname:{width}s}   ")
-                    right_pane.addstr( # freq
-                        row, width+3, f"{rows[rowname][0]:>6.2%}",
-                        pairs[0][rowname])
-                    right_pane.addstr( # exact
-                        row, width+12, f"{rows[rowname][1]:>6.2%}",
-                        pairs[1][rowname])
-                    right_pane.addstr( # avg_ms
-                        row, width+21, f"{rows[rowname][2]:>6.1f}",
-                        pairs[2][rowname])
-                    right_pane.addstr( # ms
-                        row, width+29, f"{rows[rowname][3]:>6.2f}",
-                        pairs[3][rowname])
-                    row += 1
+                    print_row()
                 except curses.error:
-                    continue # list went off the screen
-                    # TODO something better than just 
-                    # cutting off the list like this lmao
+                    row = first_row
+                    col += col_width + padding
+                    try:
+                        # right_pane.addstr(row-2, col, header[0])
+                        right_pane.addstr(row-1, col, header[1])
+                        print_row()
+                    except curses.error:
+                        break
             right_pane.refresh()
         curses.beep()
         message(f"Ranking complete", gui_util.green)
@@ -2351,6 +2367,7 @@ def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict,
     lay = layout.Layout(layout_.name, False, repr(layout_))
     if not lay.name.endswith(suffix):
         lay.name += suffix
+    lay.name = find_free_filename(lay.name)
     
     swappable = set(lay.keys.values())
     for key in pins:
