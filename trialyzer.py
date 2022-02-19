@@ -1713,13 +1713,17 @@ def save_csv_data(data: dict, filename: str):
                     data[tristroke][1])))
             w.writerow(row)
 
-def find_free_filename(before_number: str, after_number: str = ""):
+def find_free_filename(before_number: str, after_number: str = "", 
+                       prefix = ""):
     """Returns the filename {before_number}{after_number} if not already taken,
     or else returns the filename {before_number}-{i}{after_number} with the 
-    smallest i that results in a filename not already taken."""
+    smallest i that results in a filename not already taken.
+    
+    prefix is used to specify a prefix that is applied to the filename
+    but is not part of the returned value, used for directory things."""
     incl_number = before_number
     i = 1
-    while os.path.exists(incl_number + after_number):
+    while os.path.exists(prefix + incl_number + after_number):
         incl_number = f"{before_number}-{i}"
         i += 1
     return incl_number + after_number
@@ -2367,7 +2371,7 @@ def steepest_ascent(layout_: layout.Layout, tricatdata: dict, medians: dict,
     lay = layout.Layout(layout_.name, False, repr(layout_))
     if not lay.name.endswith(suffix):
         lay.name += suffix
-    lay.name = find_free_filename(lay.name)
+    lay.name = find_free_filename(lay.name, prefix="layouts/")
     
     swappable = set(lay.keys.values())
     for key in pins:
