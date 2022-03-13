@@ -27,10 +27,11 @@ Features:
 - Layout optimization by simulated annealing and steepest ascent, with key pinning
 
 Planned:
-- Further generation/optimization tools
+- Further generation/optimization tools including layout comparison, swap suggestions, interactive layout editor, etc
 - More fingermaps, boards, layouts
-- Alt fingering and sliding (maybe with some kind of customizable tag?)
-- Shift layers/multiple characters per key
+- Alt fingering and sliding
+- Shift layers, dynamic/repeat keys
+- Load arbitrary corpora with specified rules (shift keys, which thumb is used for space, etc)
 
 ## Motivation
 
