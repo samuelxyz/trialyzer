@@ -209,16 +209,30 @@ def main(stdscr: curses.window):
         
         right_pane.refresh()
 
-    def print_analysis_stats(stats: dict, header_line: str):
+    def print_analysis_stats(stats: dict, header_line: str, 
+                             diff_mode: bool = False):
         # colors
-        col_settings = (
-            {"transform": math.sqrt, 
-                "scale_filter": lambda val: val != stats[""][0]},
-            {"transform": math.sqrt},
-            {"worst": max, "best": min},
-            {"transform": math.sqrt, "worst": max, "best": min,
-                "scale_filter": lambda val: val != stats[""][3]},
-         )
+        if diff_mode:
+            extreme = lambda seq: max(map(abs, seq))
+            neg_extreme = lambda seq: -extreme(seq)
+            sqrt = lambda n: math.sqrt(n) if n >= 0 else -math.sqrt(-n)
+            col_settings = (
+                {"transform": sqrt, "worst": neg_extreme, "best": extreme,
+                    "scale_filter": lambda val: val != stats[""][0]},
+                {"transform": sqrt, "worst": neg_extreme, "best": extreme},
+                {"worst": extreme, "best": neg_extreme},
+                {"transform": sqrt, "worst": extreme, "best": neg_extreme,
+                    "scale_filter": lambda val: val != stats[""][3]},
+            )
+        else:
+            col_settings = (
+                {"transform": sqrt, 
+                    "scale_filter": lambda val: val != stats[""][0]},
+                {"transform": sqrt},
+                {"worst": max, "best": min},
+                {"transform": sqrt, "worst": max, "best": min,
+                    "scale_filter": lambda val: val != stats[""][3]},
+            )
         pairs = gui_util.apply_scales(stats, col_settings)
 
         gui_util.insert_line_bottom(header_line, right_pane)
@@ -227,6 +241,7 @@ def main(stdscr: curses.window):
         row = ymax - len(stats)
 
         # printing
+        s = '+' if diff_mode else ''
         for category in sorted(stats):
             category_name = (category_display_names[category] 
                 if category in category_display_names else category)
@@ -241,16 +256,16 @@ def main(stdscr: curses.window):
             right_pane.addstr( # category name
                 row, 0, ("{:" + pad_char + "<26}").format(category_name))
             right_pane.addstr( # freq
-                row, 27, f"{stats[category][0]:>6.2%}",
+                row, 27, f"{stats[category][0]:>{s}6.2%}",
                 pairs[0][category])
             right_pane.addstr( # known_freq
-                row, 36, f"{stats[category][1]:>6.2%}",
+                row, 36, f"{stats[category][1]:>{s}6.2%}",
                 pairs[1][category])
             right_pane.addstr( # speed
-                row, 45, f"{stats[category][2]:>6.1f}",
+                row, 45, f"{stats[category][2]:>{s}6.1f}",
                 pairs[2][category])
             right_pane.addstr( # contrib
-                row, 53, f"{stats[category][3]:>6.2f}",
+                row, 53, f"{stats[category][3]:>{s}6.2f}",
                 pairs[3][category])
             row += 1
         
@@ -579,6 +594,150 @@ def main(stdscr: curses.window):
             gui_util.insert_line_bottom("Use command \"fulla[nalyze]\" "
                 "to see remaining categories", right_pane)
         print_analysis_stats(bi_disp, bi_header_line)
+
+    def cmd_analyze_diff(show_all: bool = False):
+
+        if not args:
+            message("Usage: adiff [baseline_layout] layout", gui_util.red)
+            return
+        
+        baseline_layout = None
+        for i in range(len(args)):
+            layout_name = " ".join(args[:-i])
+            try:
+                if i == 0:
+                    target_layout = layout.get_layout(layout_name)
+                    baseline_layout = analysis_target
+                    break
+                else:
+                    target_layout = layout.get_layout(layout_name)
+                    try:
+                        baseline_name = " ".join(args[i:])
+                        baseline_layout = layout.get_layout(baseline_name)
+                    except OSError:
+                        message(f"/layouts/{baseline_name} was not found.",
+                            gui_util.red)
+                        return
+            except OSError:
+                continue
+        
+        if baseline_layout is None:
+            message(f"/layouts/{' '.join(args)} was not found.",
+                gui_util.red)
+            return
+        
+        message("Crunching the numbers >>>", gui_util.green)
+        message_win.refresh()
+        
+        analyze_diff_main(baseline_layout, target_layout, 
+                          show_all, "fulladiff")
+
+    def cmd_analyze_swap(show_all: bool = False):
+
+        if not args:
+            message("Usage: aswap [letter1 letter2] [...]", gui_util.red)
+            return
+
+        if len(args) % 2:
+            message(f"{' '.join(args)} is an odd number of swaps "
+                f"({len(args)}), should be even", gui_util.red)
+            return
+        
+        baseline_layout = analysis_target
+        swaps = args
+
+        target_layout = layout.Layout(
+            f"{baseline_layout.name}, swapped {' '.join(swaps)}", 
+            False, repr(baseline_layout))
+        try:
+            while swaps:
+                target_layout.swap((swaps.pop(0), swaps.pop(0)))
+        except KeyError as ke:
+            message(f"Key '{ke.args[0]}' does not exist "
+                    f"in layout {baseline_layout.name}",
+                    gui_util.red)
+            return
+        
+        message("Crunching the numbers >>>", gui_util.green)
+        message_win.refresh()
+
+        if not show_all:
+            message("\n" + target_layout.name + "\n"
+                    + repr(target_layout), win=right_pane)
+            right_pane.refresh()
+
+        analyze_diff_main(baseline_layout, target_layout, 
+                          show_all, "fullaswap")
+
+    def analyze_diff_main(baseline_layout: layout.Layout, 
+            target_layout: layout.Layout, show_all: bool, hint: str):
+        
+        base_medians = tristroke_medians(
+            load_csv_data(active_speeds_file), baseline_layout)
+        base_tri_stats = layout_tristroke_analysis(
+            baseline_layout, tristroke_category_data(base_medians), 
+            base_medians, trigram_freqs, tristroke_breakdowns(base_medians))
+        base_bi_stats = layout_bistroke_analysis(
+            baseline_layout, bistroke_category_data(base_medians), 
+            bistroke_medians(base_medians))
+        base_tri_ms = base_tri_stats[""][2]
+        base_tri_wpm = 24000/base_tri_ms
+        base_bi_ms = base_bi_stats[""][2]
+        base_bi_wpm = 12000/base_bi_ms
+
+        tar_medians = tristroke_medians(
+            load_csv_data(active_speeds_file), target_layout)
+        tar_tri_stats = layout_tristroke_analysis(
+            target_layout, tristroke_category_data(tar_medians), 
+            tar_medians, trigram_freqs, tristroke_breakdowns(tar_medians))
+        tar_bi_stats = layout_bistroke_analysis(
+            target_layout, bistroke_category_data(tar_medians), 
+            bistroke_medians(tar_medians))
+        tar_tri_ms = tar_tri_stats[""][2]
+        tar_tri_wpm = 24000/tar_tri_ms
+        tar_bi_ms = tar_bi_stats[""][2]
+        tar_bi_wpm = 12000/tar_bi_ms
+
+        def diff(target, baseline):
+            return {key: 
+                tuple(map(operator.sub, target[key], baseline[key]))
+                for key in target}
+
+        tri_stats = diff(tar_tri_stats, base_tri_stats)
+        bi_stats = diff(tar_bi_stats, base_bi_stats)
+        tri_ms = tar_tri_ms - base_tri_ms
+        tri_wpm = tar_tri_wpm - base_tri_wpm
+        bi_ms = tar_bi_ms - base_bi_ms
+        bi_wpm = tar_bi_wpm - base_bi_wpm
+
+        gui_util.insert_line_bottom(f"\nLayout {target_layout} "
+            f"relative to {baseline_layout}", right_pane)
+        gui_util.insert_line_bottom(
+            f"Overall {tri_ms:+.2f} ms per trigram ({tri_wpm:+.2f} wpm)", right_pane)
+        gui_util.insert_line_bottom(
+            f"Overall {bi_ms:+.2f} ms per bigram ({bi_wpm:+.2f} wpm)", right_pane)
+        
+        tri_header_line = (
+            "\nTristroke categories         freq    exact   avg_ms      ms")
+        bi_header_line = (
+            "\nBistroke categories          freq    exact   avg_ms      ms")
+
+        if show_all:
+            tri_disp = tri_stats
+            bi_disp = bi_stats
+        else:
+            tri_disp = {cat: vals for (cat, vals) in tri_stats.items()
+                if (tar_tri_stats[cat][0] or base_tri_stats[cat][0]) and not (
+                    "scissor" in cat[2:] or "sfr" in cat or "sft" in cat)}
+            bi_disp = {cat: vals for (cat, vals) in bi_stats.items()
+                if (tar_bi_stats[cat][0] or base_bi_stats[cat][0]) and (
+                    "scissor" not in cat or cat.startswith("."))}
+
+        print_analysis_stats(tri_disp, tri_header_line, True)
+        if not show_all:
+            gui_util.insert_line_bottom(f"Use command \"{hint}\" "
+                "to see remaining categories", right_pane)
+        print_analysis_stats(bi_disp, bi_header_line, True)
 
     def cmd_dump():
         if args:
@@ -1252,6 +1411,9 @@ def main(stdscr: curses.window):
             "target <layout name>: Set analysis target",
             "a[nalyze] [layout name]: Detailed layout analysis",
             "fulla[nalyze] [layout name]: Like analyze but even more detailed",
+            "a[nalyze]diff [baseline_layout] layout: "
+                "Like analyze but compares two layouts",
+            "Usage: a[nalyze]swap [letter1 letter2] [...]: Analyze a swap",
             "f[ingers] [layout name]: Hand/finger usage breakdown",
             "r[ank]: Rank all layouts by wpm",
             "rt <min|max> <freq|exact|avg_ms|ms> [category]: "
@@ -1616,6 +1778,14 @@ def main(stdscr: curses.window):
                 cmd_fingers()
             elif command in ("fulla", "fullanalyze"):
                 cmd_analyze(True)
+            elif command in ("diffa", "adiff", 'analyzediff'):
+                cmd_analyze_diff()
+            elif command in ("fulladiff",):
+                cmd_analyze_diff(True)
+            elif command in ("aswap", "analyzeswap"):
+                cmd_analyze_swap()
+            elif command in ("fullaswap",):
+                cmd_analyze_swap(True)
             elif command == "dump":
                 cmd_dump()
             elif command in ("f", "fingers"):
