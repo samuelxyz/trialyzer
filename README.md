@@ -23,7 +23,7 @@ Features:
 - Estimate the physical typing speed limit of each layout based on your typing data
 - Rank layouts by a large variety of different statistics
 - Draw layout heatmaps using a large variety of different statistics
-- Custom layouts, fingermaps, and even physical board definitions caon be added in files
+- Custom layouts, fingermaps, and even physical board definitions can be added in files
 - Layout optimization by simulated annealing and steepest ascent, with key pinning
 
 Planned:
@@ -84,14 +84,14 @@ A sequence of physical key locations on the board, each associated with the fing
 These subcategories are ways to further distinguish the major categories in the next sections.
 
 **inward, outward**  
-This is based on the *fingers* used for a series of keys. **Inward** means a finger closer to the pinky is used earlier, and a finger closer to the thumb is used later. **Outward** means the opposite. (Think of where the keys are located on the physical board.)
+This is based on the *fingers* used for a series of keys. **Inward** means a finger closer to the pinky is used earlier, and a finger closer to the thumb is used later. **Outward** means the opposite.
 
 **skipgram/skipstroke**  
 This refers to the bigram/bistroke formed by the first and third keys in a trigram/tristroke.
 
 **scissor**  
 This is when neighboring fingers are used to strike keys that are a distance of at least 2 apart on the board (Euclidean distance). Nstrokes with scissors tend to be slower and less comfortable than non-scissors.
-- **In tristrokes,** scissors may occur between the first and second keypresses, or between the second and third. If both occur, the tristroke is categorized as `scissor.twice`. A scissor may also occur in the skipstroke, as with `b` and `e` in qwerty's `bae`, in which case the tristroke is categorized as `scissor_skip`. Finally, there is `scissor_and_skip`, which indicates that both a regular scissor and a `scissor_skip` are present.
+- **In tristrokes,** scissors may occur between the first and second keypresses, or between the second and third. If both occur, the tristroke is categorized as `scissor.twice`. A scissor may also occur in the skipstroke, as with `b` and `e` in qwerty's `ble`, in which case the tristroke is categorized as `scissor_skip`. Finally, there is `scissor_and_skip`, which indicates that both a regular scissor and a `scissor_skip` are present (which only happens in certain redirects).
 
 ### Bistroke categories
 
