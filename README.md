@@ -17,17 +17,17 @@ Usage:
     - A pretty big terminal window is needed for certain features. If you get a curses error, you may have to increase your window size and/or decrease font size.
 
 Features:
-- Layout analysis based on typing data provided by and personally applicable to you
+- Layout analysis and comparison, based on typing data provided by and personally applicable to you
 - A large variety of bigram and trigram statistics, accounting for both frequency and your measured ease of typing each
 - Autosuggest trigrams to use in the typing test to most effectively characterize a layout's common finger movements
 - Estimate the physical typing speed limit of each layout based on your typing data
 - Rank layouts by a large variety of different statistics
 - Draw layout heatmaps using a large variety of different statistics
-- Custom layouts, fingermaps, and even physical board definitions can be added in files
+- Custom layouts, fingermaps, and even physical board definitions caon be added in files
 - Layout optimization by simulated annealing and steepest ascent, with key pinning
 
 Planned:
-- Further generation/optimization tools including layout comparison, swap suggestions, interactive layout editor, etc
+- Further generation/optimization tools including swap suggestions, interactive layout editor, etc
 - More fingermaps, boards, layouts
 - Alt fingering and sliding
 - Shift layers, dynamic/repeat keys

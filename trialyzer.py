@@ -1,3 +1,4 @@
+import collections
 import csv
 import itertools
 import multiprocessing
@@ -8,8 +9,10 @@ import os
 import math
 import json
 import time
+from tkinter import NONE
 from typing import Callable, Iterable
 import typing
+from unittest.mock import NonCallableMagicMock
 
 from board import Coord
 from fingermap import Finger
@@ -1545,11 +1548,14 @@ def main(stdscr: curses.window):
                 return
                     
         message("Crunching the numbers >>>", gui_util.green)
+
+        medians = tristroke_medians(
+                load_csv_data(active_speeds_file), analysis_target)
+        tribreakdowns = tristroke_breakdowns(medians)
+        tricatdata = tristroke_category_data(medians)
         stats = trigrams_with_specifications(
-            tristroke_medians(
-                load_csv_data(active_speeds_file), analysis_target), 
-            trigram_freqs, analysis_target, 
-            category, with_fingers, without_fingers
+            medians, trigram_freqs, analysis_target, category, 
+            tribreakdowns, tricatdata, with_fingers, without_fingers
         )
         overall = stats.pop("")
         display_name = (category_display_names[category] 
@@ -1559,12 +1565,13 @@ def main(stdscr: curses.window):
             f"Category: {display_name}",
             f"With: {' '.join(f.name for f in with_fingers)}",
             f"Without: {' '.join(f.name for f in without_fingers)}",
-            "Overall: (for trigrams with exact data)",
-            "          freq   avg_ms       ms   n",
-            "      {:>8.3%}   {:>6.1f}  {:>7.3f}".format(*overall)
-            + f"   {len(stats)}"
+            "Overall:  freq   avg_ms       ms   exact",
+            "      {:>8.3%}   {:>6.1f}  {:>7.3f}   {:6.2%}".format(*overall),
+            "Trigrams in gray have their speeds guessed (inexact)"
         )
         message("\n".join(header), win=right_pane)
+        gray = curses.color_pair(gui_util.gray)
+        right_pane.addstr(right_pane.getmaxyx()[0]-1, 12, "gray", gray)
 
         col_settings = [ # for colors
             {"transform": math.sqrt}, # freq
@@ -1581,7 +1588,7 @@ def main(stdscr: curses.window):
             stats, key=lambda t: stats[t][2], reverse=True)
         frequent_trigrams = sorted(
             stats, key=lambda t: stats[t][0], reverse=True)
-        width = len(max(stats, key=lambda t: len(t)))
+        width = max(len(t) for t in stats)
         for list_, listname in zip(
                 (best_trigrams, worst_trigrams, frequent_trigrams),
                 ("Fastest:", "Highest impact:", "Most frequent:")):
@@ -1595,7 +1602,8 @@ def main(stdscr: curses.window):
                 right_pane.move(row, 0)
                 right_pane.clrtoeol()
                 right_pane.addstr(
-                    row, 0, f"{tg:{width}s}   ")
+                    row, 0, f"{tg:{width}s}   ",
+                    0 if stats[tg][3] else gray)
                 right_pane.addstr( # freq
                     row, width+2, f"{stats[tg][0]:>7.3%}",
                     pairs[0][tg])
@@ -2152,17 +2160,18 @@ def data_for_tristroke_category(category: str, medians: dict):
 
 def trigrams_with_specifications_raw(
         medians: dict, trigram_freqs: dict, layout_: layout.Layout, 
-        category: str, 
+        category: str, tribreakdowns: dict, tricatdata: dict,
         with_fingers: set[Finger] = set(Finger), 
         without_fingers: set[Finger] = set()):
-    """Returns dict[trigram_tuple, (total_freq, total_time)]"""
+    """Returns dict[trigram_tuple, (total_freq, total_time, is_exact)]"""
     applicable = applicable_function(category)
-    result = {"": [0,0]} # total_freq, total_time for category
+    result = {"": [0, 0, 0]} # total_freq, total_time, known_freq for category
     total_freq = 0 # for all trigrams
-    for tristroke in medians:
-        trigram = layout_.to_ngram(tristroke)
+    speed_calc =  tristroke_speed_calculator(
+        medians, tribreakdowns, tricatdata)
+    for trigram, freq in trigram_freqs.items():
         try:
-            freq = trigram_freqs["".join(trigram)]
+            tristroke = layout_.to_nstroke(trigram)
         except KeyError:
             continue
         total_freq += freq
@@ -2178,30 +2187,33 @@ def trigrams_with_specifications_raw(
         cat = tristroke_category(tristroke)
         if not applicable(cat):
             continue
-        speed = medians[tristroke][2]
-        for key in ("", trigram):
-            try:
-                result[key][0] += freq
-                result[key][1] += speed*freq
-            except KeyError:
-                result[key] = [freq, speed*freq]
+        speed, exact = speed_calc(tristroke)
+        result[""][0] += freq
+        result[""][1] += speed*freq
+        if exact:
+            result[""][2] += freq
+        result[trigram] = [freq, speed*freq, exact]
     return total_freq, result
 
 def trigrams_with_specifications(
         medians: dict, trigram_freqs: dict, layout_: layout.Layout, 
-        category: str, 
+        category: str, tribreakdowns: dict, tricatdata: dict,
         with_fingers: set[Finger] = set(Finger), 
         without_fingers: set[Finger] = set()):
-    """Returns dict[trigram_str, (freq, avg_ms, ms)]"""
+    """Returns dict[trigram_str, (freq, avg_ms, ms, is_exact)],
+    except for the key \"\" which gives (freq, avg_ms, ms, exact_percent)
+    for the entire given category."""
     total_freq, raw = trigrams_with_specifications_raw(
-            medians, trigram_freqs, layout_, category, 
+            medians, trigram_freqs, layout_, category,
+            tribreakdowns, tricatdata, 
             with_fingers, without_fingers)
+    raw[""][2] = raw[""][2]/raw[""][0] if raw[""][0] else 0
     result = dict()
     for key in raw:
         freq = raw[key][0]/total_freq if total_freq else 0
         avg_ms = raw[key][1]/raw[key][0] if raw[key][0] else 0
         ms = raw[key][1]/total_freq if total_freq else 0
-        result[" ".join(key)] = (freq, avg_ms, ms)
+        result[" ".join(key)] = (freq, avg_ms, ms, raw[key][2])
     return result
 
 def tristroke_breakdowns(medians: dict):
