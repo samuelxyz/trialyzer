@@ -63,18 +63,21 @@ Of course, this approach comes with some limitations and drawbacks.
     - Trialyzer also includes a setting to use only the top *n* most common trigrams rather than the full 27,000, which makes it compute substantially faster at the cost of losing some fidelity.
     - Of course, extrapolation is never as good as actual complete data, so the more you test, the better the results will be. 
 - Trigrams don't capture the entire flow of longer sequences. A quadgram might have an uncomfortable interaction between the first and fourth letters, which won't be captured by trialyzer.
-    - On the plus side, trigrams are at least much better than the older bigram-only statistics, while remaining within practical limits. Longer sequences quickly become combinatorically problematic to test and calculate, with a much larger number of possibilities than even trigrams. Perhaps trigram data can be split apart and pieced back together to approximate
+    - On the plus side, trigrams are at least much better than the older bigram-only statistics, while remaining within practical limits. Longer sequences quickly become combinatorically problematic to test and calculate, with a much larger number of possibilities than even trigrams. Perhaps trigram data can be split apart and pieced back together to form approximate measurements for longer sequences, which wouldn't require extra data collection but would still be a computational burden... an idea for later, perhaps?
 
 ## Terminology
 
 **Layout**  
-A mapping between key names (`a`, `;`, `LShift`) and key positions (row, column). A fingermap and board are also specified for each layout. Examples: `QWERTY`, `colemak_dh`.
+A mapping between key names (`a`, `;`, `LShift`) and key positions (row, column). A fingermap and board are also specified for each layout.  
+Examples: `QWERTY`, `colemak_dh`.
 
 **Fingermap**  
-A mapping between key positions (row, column) and fingers (`LI` for left index, `RP` for right pinky.) Examples: `traditional`, `angle_iso`.
+A mapping between key positions (row, column) and fingers (`LI` for left index, `RP` for right pinky.)  
+Possible examples: `traditional`, `iso_angle`.
 
 **Board**  
-A mapping between key positions (row, column) and physical locations of the keys (x/y coordinates). Examples: `iso`, `ortho`. 
+A mapping between key positions (row, column) and physical locations of the keys (x/y coordinates).  
+Possible examples: `ansi`, `ortho`, `moonlander`. 
 
 **Bigram, trigram, n-gram**  
 Existing terminology meaning a sequence of characters or key names. These may be called "text n-grams" to further clarify that they refer only to key names, which may vary depending on layout, as opposed to physical keys on the board.
@@ -82,7 +85,7 @@ Existing terminology meaning a sequence of characters or key names. These may be
 **Bistroke, tristroke, n-stroke**  
 A sequence of physical key locations on the board, each associated with the finger used for that key. Trialyzer collects data on the typing speeds of different tristrokes using its built-in typing test, then applies it to analyze a selected layout by associating those tristrokes with text trigrams.
 
-(Note: Different fingermap-board combinations may have some tristrokes in common; for instance, all tristrokes involving the top and home row are identical between `traditional`-`ansi` and `angle_iso`-`iso`. Moreover, though the right hand is in a different position in `angle_iso` versus `angle_wide_iso`, the shape of each tristroke on the right hand is identical. Trialyzer accounts for these commonalities, and allows the relevant typing speed data to be shared between different boards and fingermaps.)
+(Note: Different fingermap-board combinations may have some tristrokes in common; for instance, all tristrokes involving the top and home row are identical between `traditional`-`ansi` and `iso_angle`-`iso`. Moreover, though the right hand is in a different position in `iso_angle` versus `iso_angle_wide`, the shape of each tristroke on the right hand is identical. Trialyzer accounts for these commonalities, and allows the relevant typing speed data to be shared between different boards and fingermaps.)
 
 ## Nstroke categories
 
