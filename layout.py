@@ -221,6 +221,15 @@ class Layout:
             fing_freqs[finger] /= total_lfreq
         return fing_freqs
 
+    def total_freq(self, trigram_freqs: dict):
+        total = 0
+        for trigram, freq in trigram_freqs:
+            for key in trigram:
+                if not key in self.positions:
+                    continue
+            total += freq
+        return total
+
 def get_layout(name: str) -> Layout:
     if name not in Layout.loaded:
         Layout.loaded[name] = Layout(name)

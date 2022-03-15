@@ -1411,12 +1411,12 @@ def main(stdscr: curses.window):
             "c[lear] <trigram>: Erase data for trigram",
             "df [filename]: Set typing data file, or use default",
             "-----Analysis commands-----",
-            "target <layout name>: Set analysis target",
+            "target <layout name>: Set analysis target (for other commands)",
             "a[nalyze] [layout name]: Detailed layout analysis",
             "fulla[nalyze] [layout name]: Like analyze but even more detailed",
             "a[nalyze]diff [baseline_layout] layout: "
                 "Like analyze but compares two layouts",
-            "Usage: a[nalyze]swap [letter1 letter2] [...]: Analyze a swap",
+            "a[nalyze]swap [letter1 letter2] [...]: Analyze a swap",
             "f[ingers] [layout name]: Hand/finger usage breakdown",
             "r[ank]: Rank all layouts by wpm",
             "rt <min|max> <freq|exact|avg_ms|ms> [category]: "
@@ -1428,10 +1428,11 @@ def main(stdscr: curses.window):
             "tsc [category]: Show tristroke category/total stats",
             "tgc [category] [with <fingers>] [without <fingers>]: "
                 "Show speeds and trigrams of interest in recorded data",
+            "----Editing/Optimization----",
             "i[mprove] [layout name] [pinky cap] [pin <keys>]: "
-                "Optimize layout",
+                "Optimize using steepest ascent swaps",
             "si [layout name] [n] [pinky cap] [pin <keys>]: "
-                "Shuffle and attempt optimization n times, saving the best",
+                "Shuffle and run steepest ascent n times, saving the best",
             "anneal [layout name] [n] [pinky cap] [pin <keys>]: "
                 "Optimize with simulated annealing"
         ]
@@ -2157,6 +2158,37 @@ def data_for_tristroke_category(category: str, medians: dict):
             output_l[finger] = (speed, n)
     
     return (speed, num_samples, with_fingers, without_fingers)
+
+def trigrams_in_list(
+        trigrams: Iterable, medians: dict, layout_: layout.Layout,
+        tribreakdowns: dict, tricatdata: dict, trigram_freqs: dict):
+    """Returns dict[trigram_str, (freq, avg_ms, ms, is_exact)],
+    except for the key \"\" which gives (freq, avg_ms, ms, exact_percent)
+    for the entire given list."""
+    raw = {"": [0, 0, 0]} # total_freq, total_time, known_freq for list
+    speed_calc =  tristroke_speed_calculator(
+        medians, tribreakdowns, tricatdata)
+    for trigram in trigrams:
+        try:
+            freq = trigram_freqs[trigram]
+            tristroke = layout_.to_nstroke(trigram)
+        except KeyError:
+            continue
+        speed, exact = speed_calc(tristroke)
+        raw[""][0] += freq
+        raw[""][1] += speed*freq
+        if exact:
+            raw[""][2] += freq
+        raw[trigram] = [freq, speed*freq, exact]
+    raw[""][2] = raw[""][2]/raw[""][0] if raw[""][0] else 0
+    result = dict()
+    total_freq = layout_.total_freq(trigram_freqs)
+    for key in raw:
+        freq = raw[key][0]/total_freq if total_freq else 0
+        avg_ms = raw[key][1]/raw[key][0] if raw[key][0] else 0
+        ms = raw[key][1]/total_freq if total_freq else 0
+        result[" ".join(key)] = (freq, avg_ms, ms, raw[key][2])
+    return result
 
 def trigrams_with_specifications_raw(
         medians: dict, trigram_freqs: dict, layout_: layout.Layout, 
