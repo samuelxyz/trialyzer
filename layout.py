@@ -223,7 +223,7 @@ class Layout:
 
     def total_freq(self, trigram_freqs: dict):
         total = 0
-        for trigram, freq in trigram_freqs:
+        for trigram, freq in trigram_freqs.items():
             for key in trigram:
                 if not key in self.positions:
                     continue

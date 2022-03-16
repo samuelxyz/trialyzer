@@ -1,4 +1,3 @@
-import collections
 import csv
 import itertools
 import multiprocessing
@@ -9,10 +8,8 @@ import os
 import math
 import json
 import time
-from tkinter import NONE
 from typing import Callable, Iterable
 import typing
-from unittest.mock import NonCallableMagicMock
 
 from board import Coord
 from fingermap import Finger
@@ -108,20 +105,20 @@ def main(stdscr: curses.window):
     curses.curs_set(0)
     gui_util.init_colors()
 
-    height, width = stdscr.getmaxyx()
-    titlebar = stdscr.subwin(1,width,0,0)
+    height, twidth = stdscr.getmaxyx()
+    titlebar = stdscr.subwin(1,twidth,0,0)
     titlebar.bkgd(" ", curses.A_REVERSE)
-    titlebar.addstr("Trialyzer" + " "*(width-10))
+    titlebar.addstr("Trialyzer" + " "*(twidth-10))
     titlebar.refresh()
     content_win = stdscr.subwin(1, 0)
 
-    height, width = content_win.getmaxyx()
+    height, twidth = content_win.getmaxyx()
     startup_lines = len(header_text())
     message_win = content_win.derwin(
-        height-startup_lines-2, int(width/3), startup_lines, 0)
+        height-startup_lines-2, int(twidth/3), startup_lines, 0)
     right_pane = content_win.derwin(
-        height-startup_lines-2, int(width*2/3), startup_lines, 
-        int(width/3))
+        height-startup_lines-2, int(twidth*2/3), startup_lines, 
+        int(twidth/3))
     for win in (message_win, right_pane):
         win.scrollok(True)
         win.idlok(True)
@@ -601,30 +598,23 @@ def main(stdscr: curses.window):
     def cmd_analyze_diff(show_all: bool = False):
 
         if not args:
-            message("Usage: adiff [baseline_layout] layout", gui_util.red)
+            message("Usage: adiff [baseline_layout] <layout>", gui_util.red)
             return
         
         baseline_layout = None
-        for i in range(len(args)):
-            layout_name = " ".join(args[:-i])
-            try:
-                if i == 0:
-                    target_layout = layout.get_layout(layout_name)
-                    baseline_layout = analysis_target
-                    break
+        lay1, remain = extract_layout_front(args)
+        if lay1:
+            if remain:
+                lay2, _ = extract_layout_front(remain, True)
+                if lay2:
+                    baseline_layout, target_layout = lay1, lay2
                 else:
-                    target_layout = layout.get_layout(layout_name)
-                    try:
-                        baseline_name = " ".join(args[i:])
-                        baseline_layout = layout.get_layout(baseline_name)
-                    except OSError:
-                        message(f"/layouts/{baseline_name} was not found.",
-                            gui_util.red)
-                        return
-            except OSError:
-                continue
-        
-        if baseline_layout is None:
+                    message(f"/layouts/{' '.join(remain)} was not found.",
+                        gui_util.red)
+                    return
+            else:
+                baseline_layout, target_layout = analysis_target, lay1
+        else:
             message(f"/layouts/{' '.join(args)} was not found.",
                 gui_util.red)
             return
@@ -1414,7 +1404,7 @@ def main(stdscr: curses.window):
             "target <layout name>: Set analysis target (for other commands)",
             "a[nalyze] [layout name]: Detailed layout analysis",
             "fulla[nalyze] [layout name]: Like analyze but even more detailed",
-            "a[nalyze]diff [baseline_layout] layout: "
+            "a[nalyze]diff [baseline_layout] <layout>: "
                 "Like analyze but compares two layouts",
             "a[nalyze]swap [letter1 letter2] [...]: Analyze a swap",
             "f[ingers] [layout name]: Hand/finger usage breakdown",
@@ -1428,6 +1418,8 @@ def main(stdscr: curses.window):
             "tsc [category]: Show tristroke category/total stats",
             "tgc [category] [with <fingers>] [without <fingers>]: "
                 "Show speeds and trigrams of interest in recorded data",
+            "tgcdiff [baseline_layout] <layout> <args for tgc>: "
+                "Like tgc but shows how trigrams vary between layouts",
             "----Editing/Optimization----",
             "i[mprove] [layout name] [pinky cap] [pin <keys>]: "
                 "Optimize using steepest ascent swaps",
@@ -1546,6 +1538,8 @@ def main(stdscr: curses.window):
         else:
             category = parse_category(args[0])
             if category is None:
+                if extract_layout_front(args)[0]:
+                    message("Did you mean to use tgcdiff?", gui_util.red)
                 return
                     
         message("Crunching the numbers >>>", gui_util.green)
@@ -1562,24 +1556,19 @@ def main(stdscr: curses.window):
         display_name = (category_display_names[category] 
             if category in category_display_names else category)
 
+        right_pane.scroll(1)
         header = (
-            f"Category: {display_name}",
+            str(analysis_target),
+            f"Tristroke category: {display_name}",
             f"With: {' '.join(f.name for f in with_fingers)}",
             f"Without: {' '.join(f.name for f in without_fingers)}",
+            "Trigrams in gray have their speeds guessed (inexact)",
             "Overall:  freq   avg_ms       ms   exact",
             "      {:>8.3%}   {:>6.1f}  {:>7.3f}   {:6.2%}".format(*overall),
-            "Trigrams in gray have their speeds guessed (inexact)"
         )
         message("\n".join(header), win=right_pane)
         gray = curses.color_pair(gui_util.gray)
-        right_pane.addstr(right_pane.getmaxyx()[0]-1, 12, "gray", gray)
-
-        col_settings = [ # for colors
-            {"transform": math.sqrt}, # freq
-            {"worst": max, "best": min}, # avg_ms
-            {"transform": math.sqrt, "worst": max, "best": min}, # ms
-        ]
-        pairs = gui_util.apply_scales(stats, col_settings)
+        right_pane.addstr(right_pane.getmaxyx()[0]-3, 12, "gray", gray)
 
         num_rows = right_pane.getmaxyx()[0] - len(header)
         rows_each = int(num_rows/3) - 3
@@ -1589,11 +1578,25 @@ def main(stdscr: curses.window):
             stats, key=lambda t: stats[t][2], reverse=True)
         frequent_trigrams = sorted(
             stats, key=lambda t: stats[t][0], reverse=True)
-        width = max(len(t) for t in stats)
+        if len(best_trigrams) > rows_each:
+            best_trigrams = best_trigrams[:rows_each]
+            worst_trigrams = worst_trigrams[:rows_each]
+            frequent_trigrams = frequent_trigrams[:rows_each]
+        visible_trigrams = best_trigrams + worst_trigrams + frequent_trigrams
+        twidth = max(len(" ".join(t)) for t in visible_trigrams)        
+        stats = {t: s for t, s in stats.items() if t in visible_trigrams}
+
+        col_settings = [ # for colors
+            {"transform": math.sqrt}, # freq
+            {"worst": max, "best": min}, # avg_ms
+            {"transform": math.sqrt, "worst": max, "best": min}, # ms
+        ]
+        pairs = gui_util.apply_scales(stats, col_settings)
+
         for list_, listname in zip(
                 (best_trigrams, worst_trigrams, frequent_trigrams),
                 ("Fastest:", "Highest impact:", "Most frequent:")):
-            message(f"\n{listname}\n" + " "*width + 
+            message(f"\n{listname}\n" + " "*twidth + 
                 "     freq   avg_ms       ms   category", win=right_pane)
             if len(list_) > rows_each:
                 list_ = list_[:rows_each]
@@ -1603,21 +1606,191 @@ def main(stdscr: curses.window):
                 right_pane.move(row, 0)
                 right_pane.clrtoeol()
                 right_pane.addstr(
-                    row, 0, f"{tg:{width}s}   ",
+                    row, 0, f"{' '.join(tg):{twidth}s}   ",
                     0 if stats[tg][3] else gray)
                 right_pane.addstr( # freq
-                    row, width+2, f"{stats[tg][0]:>7.3%}",
+                    row, twidth+2, f"{stats[tg][0]:>7.3%}",
                     pairs[0][tg])
                 right_pane.addstr( # avg_ms
-                    row, width+12, f"{stats[tg][1]:>6.1f}",
+                    row, twidth+12, f"{stats[tg][1]:>6.1f}",
                     pairs[1][tg])
                 right_pane.addstr( # ms
-                    row, width+21, f"{stats[tg][2]:>6.3f}",
+                    row, twidth+21, f"{stats[tg][2]:>6.3f}",
                     pairs[2][tg])
                 right_pane.addstr( # category
-                    row, width+30, 
-                    tristroke_category(analysis_target.to_nstroke(
-                        tuple(tg.split(" ")))))
+                    row, twidth+30, 
+                    tristroke_category(analysis_target.to_nstroke(tg)))
+                row += 1
+        right_pane.refresh()
+
+    def cmd_tgc_diff():
+        if not args:
+            message("Usage: tgcdiff [baseline_layout] <layout> [category] "
+                "[with <fingers>] [without <fingers>]", gui_util.red)
+            return
+        
+        lay1, remain = extract_layout_front(args)
+        if lay1:
+            if remain:
+                lay2, remain = extract_layout_front(remain)
+                if lay2:
+                    baseline_layout, target_layout = lay1, lay2
+                else:
+                    message(f"/layouts/{' '.join(remain)} was not found.",
+                        gui_util.red)
+                    return
+            else:
+                baseline_layout, target_layout = analysis_target, lay1
+        else:
+            message(f"/layouts/{' '.join(args)} was not found.",
+                gui_util.red)
+            return
+
+        with_fingers = set()
+        without_fingers = set()
+        try:
+            for i in reversed(range(len(remain))):
+                if remain[i] == "with":
+                    for _ in range(len(remain)-i-1):
+                        with_fingers.add(Finger[remain.pop()])
+                    remain.pop() # remove "with"
+                elif remain[i] == "without":
+                    for _ in range(len(remain)-i-1):
+                        without_fingers.add(Finger[remain.pop()])
+                    remain.pop() # remove "without"
+        except KeyError:
+            message("Usage: tgcdiff [baseline_layout] <layout> [category] "
+                "[with <fingers>] [without <fingers>]", gui_util.red)
+            return
+        if not with_fingers:
+            with_fingers = set(Finger)
+        with_fingers -= without_fingers
+        if not remain:
+            category = ""
+        else:
+            category = parse_category(remain[0])
+            if category is None:
+                return
+        
+        message("Crunching the numbers >>>", gui_util.green)
+        message_win.refresh()
+        
+        tgc_diff_main(baseline_layout, target_layout, category, 
+            with_fingers, without_fingers)
+
+    def tgc_diff_main(
+            baseline_layout: layout.Layout, target_layout: layout.Layout, 
+            category: str, 
+            with_fingers: set[Finger], without_fingers: set[Finger]):
+        base_medians = tristroke_medians(
+                load_csv_data(active_speeds_file), baseline_layout)
+        base_tribreakdowns = tristroke_breakdowns(base_medians)
+        base_tricatdata = tristroke_category_data(base_medians)
+        base_stats = trigrams_with_specifications(
+            base_medians, trigram_freqs, baseline_layout, category, 
+            base_tribreakdowns, base_tricatdata, with_fingers, without_fingers
+        )
+        base_overall = base_stats.pop("")
+        tar_medians = tristroke_medians(
+                load_csv_data(active_speeds_file), baseline_layout)
+        tar_tribreakdowns = tristroke_breakdowns(tar_medians)
+        tar_tricatdata = tristroke_category_data(tar_medians)
+        tar_stats = trigrams_in_list(
+            base_stats, tar_medians, target_layout, tar_tribreakdowns, 
+            tar_tricatdata, trigram_freqs)
+        tar_overall = tar_stats.pop("")
+
+        # maybe something fancy should be done with any trigrams that
+        # don't exist in both layouts, but for now we just drop them
+        stats = dict()
+        for trigram, base in base_stats.items():
+            try:
+                tar = tar_stats[trigram]
+            except KeyError:
+                continue
+            if tar[1] == base[1]:
+                continue
+            stats[trigram] = (
+                base[0], # freq
+                tar[1] - base[1], # avg_ms
+                tar[2] - base[2], # ms
+                tar[3] and base[3], # exact
+                tristroke_category(baseline_layout.to_nstroke(trigram)),
+                tristroke_category(target_layout.to_nstroke(trigram)),
+            )
+        overall = tuple(map(operator.sub, tar_overall, base_overall))
+
+        display_name = (category_display_names[category] 
+            if category in category_display_names else category)
+
+        header = (
+            f"{str(target_layout)} relative to {str(baseline_layout)}",
+            f"Trigram category: {display_name}",
+            f"With: {' '.join(f.name for f in with_fingers)}",
+            f"Without: {' '.join(f.name for f in without_fingers)}",
+            "Trigrams in gray have their speeds guessed (inexact)",
+            "Overall:  freq   avg_ms       ms   exact",
+            "      {:>+8.3%}   {:>+6.1f}  {:>+7.3f}   {:+6.2%}".format(
+                *overall),
+        )
+        message("\n".join(header), win=right_pane)
+        gray = curses.color_pair(gui_util.gray)
+        right_pane.addstr(right_pane.getmaxyx()[0]-3, 12, "gray", gray)
+
+        num_rows = right_pane.getmaxyx()[0] - len(header)
+        rows_each = int(num_rows/3) - 3
+        first_row = right_pane.getmaxyx()[0] - rows_each
+        best_trigrams = sorted(stats, key=lambda t: stats[t][2])
+        worst_trigrams = list(reversed(best_trigrams))
+        frequent_trigrams = sorted(
+            stats, key=lambda t: stats[t][0], reverse=True)
+        if len(best_trigrams) > rows_each:
+            best_trigrams = best_trigrams[:rows_each]
+            worst_trigrams = worst_trigrams[:rows_each]
+            frequent_trigrams = frequent_trigrams[:rows_each]
+        visible_trigrams = set(best_trigrams + worst_trigrams + frequent_trigrams)
+        twidth = max(len(" ".join(t)) for t in visible_trigrams)
+        cat_width = max(len(stats[t][4]) for t in visible_trigrams)
+        stats = {t: s for t, s in stats.items() if t in visible_trigrams}
+
+        extreme = lambda seq: max(map(abs, seq))
+        neg_extreme = lambda seq: -extreme(seq)
+        sqrt = lambda n: math.sqrt(n) if n >= 0 else -math.sqrt(-n)
+        col_settings = (
+            {"transform": sqrt, "worst": neg_extreme, "best": extreme}, # freq
+            {"worst": extreme, "best": neg_extreme}, # avg_ms
+            {"transform": sqrt, "worst": extreme, "best": neg_extreme}, # ms
+        )
+        pairs = gui_util.apply_scales(stats, col_settings)
+
+        for list_, listname in zip(
+                (best_trigrams, worst_trigrams, frequent_trigrams),
+                ("Most improved:", "Most worsened:", "Most frequent:")):
+            message(f"\n{listname}\n{' '*twidth}" 
+                f"     freq   avg_ms       ms   {'old category':{cat_width}}"
+                "   new category",
+                win=right_pane)
+            right_pane.scroll(rows_each)
+            row = first_row
+            for tg in list_:
+                right_pane.move(row, 0)
+                right_pane.clrtoeol()
+                right_pane.addstr(
+                    row, 0, f"{' '.join(tg):{twidth}s}   ",
+                    0 if stats[tg][3] else gray)
+                right_pane.addstr( # freq
+                    row, twidth+2, f"{stats[tg][0]:>7.3%}",
+                    pairs[0][tg])
+                right_pane.addstr( # avg_ms
+                    row, twidth+12, f"{stats[tg][1]:>+6.1f}",
+                    pairs[1][tg])
+                right_pane.addstr( # ms
+                    row, twidth+21, f"{stats[tg][2]:>+6.3f}",
+                    pairs[2][tg])
+                right_pane.addstr( # category1
+                    row, twidth+30, stats[tg][4])
+                right_pane.addstr( # category2
+                    row, twidth+33+cat_width, stats[tg][5])
                 row += 1
         right_pane.refresh()
 
@@ -1823,6 +1996,8 @@ def main(stdscr: curses.window):
                 cmd_tsc()
             elif command == "tgc":
                 cmd_tgc()
+            elif command == "tgcdiff":
+                cmd_tgc_diff()
             elif command == "reload":
                 cmd_reload()
             elif command == "draw":
@@ -1906,6 +2081,23 @@ def find_free_filename(before_number: str, after_number: str = "",
         incl_number = f"{before_number}-{i}"
         i += 1
     return incl_number + after_number
+
+def extract_layout_front(tokens: Iterable[str], require_full: bool = False):
+    """Attempts to find a named layout by joining the tokens with spaces. 
+    Returns the layout and remaining tokens. If require_full is set, the
+    layout name must take up the entire token."""
+    tokens = list(tokens)
+    remainder = []
+    while tokens:
+        try:
+            layout_ = layout.get_layout(" ".join(tokens))
+            return layout_, remainder
+        except OSError:
+            if require_full:
+                return None, tokens
+            else:
+                remainder.insert(0, tokens.pop())
+    return None, remainder
 
 def tristroke_medians(csv_data: dict, layout: layout.Layout):
     """Take csv data, find tristrokes that are applicable to the given layout,
@@ -2162,7 +2354,7 @@ def data_for_tristroke_category(category: str, medians: dict):
 def trigrams_in_list(
         trigrams: Iterable, medians: dict, layout_: layout.Layout,
         tribreakdowns: dict, tricatdata: dict, trigram_freqs: dict):
-    """Returns dict[trigram_str, (freq, avg_ms, ms, is_exact)],
+    """Returns dict[trigram_tuple, (freq, avg_ms, ms, is_exact)],
     except for the key \"\" which gives (freq, avg_ms, ms, exact_percent)
     for the entire given list."""
     raw = {"": [0, 0, 0]} # total_freq, total_time, known_freq for list
@@ -2170,7 +2362,7 @@ def trigrams_in_list(
         medians, tribreakdowns, tricatdata)
     for trigram in trigrams:
         try:
-            freq = trigram_freqs[trigram]
+            freq = trigram_freqs["".join(trigram)]
             tristroke = layout_.to_nstroke(trigram)
         except KeyError:
             continue
@@ -2187,7 +2379,7 @@ def trigrams_in_list(
         freq = raw[key][0]/total_freq if total_freq else 0
         avg_ms = raw[key][1]/raw[key][0] if raw[key][0] else 0
         ms = raw[key][1]/total_freq if total_freq else 0
-        result[" ".join(key)] = (freq, avg_ms, ms, raw[key][2])
+        result[key] = (freq, avg_ms, ms, raw[key][2])
     return result
 
 def trigrams_with_specifications_raw(
@@ -2224,7 +2416,7 @@ def trigrams_with_specifications_raw(
         result[""][1] += speed*freq
         if exact:
             result[""][2] += freq
-        result[trigram] = [freq, speed*freq, exact]
+        result[tuple(trigram)] = [freq, speed*freq, exact]
     return total_freq, result
 
 def trigrams_with_specifications(
@@ -2232,7 +2424,7 @@ def trigrams_with_specifications(
         category: str, tribreakdowns: dict, tricatdata: dict,
         with_fingers: set[Finger] = set(Finger), 
         without_fingers: set[Finger] = set()):
-    """Returns dict[trigram_str, (freq, avg_ms, ms, is_exact)],
+    """Returns dict[trigram_tuple, (freq, avg_ms, ms, is_exact)],
     except for the key \"\" which gives (freq, avg_ms, ms, exact_percent)
     for the entire given category."""
     total_freq, raw = trigrams_with_specifications_raw(
@@ -2245,7 +2437,7 @@ def trigrams_with_specifications(
         freq = raw[key][0]/total_freq if total_freq else 0
         avg_ms = raw[key][1]/raw[key][0] if raw[key][0] else 0
         ms = raw[key][1]/total_freq if total_freq else 0
-        result[" ".join(key)] = (freq, avg_ms, ms, raw[key][2])
+        result[key] = (freq, avg_ms, ms, raw[key][2])
     return result
 
 def tristroke_breakdowns(medians: dict):

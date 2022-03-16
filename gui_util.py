@@ -57,11 +57,18 @@ def apply_scales(rows: dict[str, Iterable], col_settings: Iterable[dict]):
     col_settings is of length N, each entry being a dict with the keywords:
     "worst", "best", "scale_filter", "transform", "exclude_zeros". 
     Defaults to min, max, lambda _: True, lambda x: x, True.
-    "worst" and "best" are applied before the transform."""
-    pairs = [dict() for _ in range(len(col_settings))]
+    "worst" and "best" are applied before the transform.
+    
+    Columns whose col_settings entry is None, or nonexistent, will be skipped
+    and the corresponding column in the output will be None or nonexistent
+    respectively."""
+    pairs = [dict() for _ in col_settings]
     defaults = {"worst": min, "best": max, "scale_filter": lambda _: True, 
         "transform": lambda x: x, "exclude_zeros": True}
     for col, settings in enumerate(col_settings):
+        if settings is None:
+            pairs[col] = None
+            continue
         for key in defaults:
             if key not in settings:
                 settings[key] = defaults[key]
