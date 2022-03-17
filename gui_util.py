@@ -1,6 +1,14 @@
 import curses
 from typing import Iterable
 import statistics
+import math
+
+def extreme(seq):
+    return max(abs(val) for val in seq)
+def neg_extreme(seq):
+    return -max(abs(val) for val in seq)
+def odd_sqrt(n):
+    return math.sqrt(n) if n >= 0 else -math.sqrt(-n)
 
 red = 1
 green = 2
@@ -73,9 +81,9 @@ def apply_scales(rows: dict[str, Iterable], col_settings: Iterable[dict]):
             if key not in settings:
                 settings[key] = defaults[key]
         if settings["exclude_zeros"]:
-            zeros_filter = lambda x: x != 0
+            def zeros_filter(x): return x != 0
         else:
-            zeros_filter = lambda _: True
+            def zeros_filter(_): return True
         worst = settings["transform"](
             settings["worst"](val[col] for val in rows.values()
                 if settings["scale_filter"](val[col])

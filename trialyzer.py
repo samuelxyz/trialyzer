@@ -213,24 +213,21 @@ def main(stdscr: curses.window):
                              diff_mode: bool = False):
         # colors
         if diff_mode:
-            extreme = lambda seq: max(map(abs, seq))
-            neg_extreme = lambda seq: -extreme(seq)
-            sqrt = lambda n: math.sqrt(n) if n >= 0 else -math.sqrt(-n)
             col_settings = (
-                {"transform": sqrt, "worst": neg_extreme, "best": extreme,
+                {"transform": gui_util.odd_sqrt, "worst": gui_util.neg_extreme, "best": gui_util.extreme,
                     "scale_filter": lambda val: val != stats[""][0]},
-                {"transform": sqrt, "worst": neg_extreme, "best": extreme},
-                {"worst": extreme, "best": neg_extreme},
-                {"transform": sqrt, "worst": extreme, "best": neg_extreme,
+                {"transform": gui_util.odd_sqrt, "worst": gui_util.neg_extreme, "best": gui_util.extreme},
+                {"worst": gui_util.extreme, "best": gui_util.neg_extreme},
+                {"transform": gui_util.odd_sqrt, "worst": gui_util.extreme, "best": gui_util.neg_extreme,
                     "scale_filter": lambda val: val != stats[""][3]},
             )
         else:
             col_settings = (
-                {"transform": sqrt, 
+                {"transform": gui_util.odd_sqrt, 
                     "scale_filter": lambda val: val != stats[""][0]},
-                {"transform": sqrt},
+                {"transform": gui_util.odd_sqrt},
                 {"worst": max, "best": min},
-                {"transform": sqrt, "worst": max, "best": min,
+                {"transform": gui_util.odd_sqrt, "worst": max, "best": min,
                     "scale_filter": lambda val: val != stats[""][3]},
             )
         pairs = gui_util.apply_scales(stats, col_settings)
@@ -1598,8 +1595,6 @@ def main(stdscr: curses.window):
                 ("Fastest:", "Highest impact:", "Most frequent:")):
             message(f"\n{listname}\n" + " "*twidth + 
                 "     freq   avg_ms       ms   category", win=right_pane)
-            if len(list_) > rows_each:
-                list_ = list_[:rows_each]
             right_pane.scroll(rows_each)
             row = first_row
             for tg in list_:
@@ -1748,18 +1743,17 @@ def main(stdscr: curses.window):
             best_trigrams = best_trigrams[:rows_each]
             worst_trigrams = worst_trigrams[:rows_each]
             frequent_trigrams = frequent_trigrams[:rows_each]
-        visible_trigrams = set(best_trigrams + worst_trigrams + frequent_trigrams)
+        visible_trigrams = set(
+            best_trigrams + worst_trigrams + frequent_trigrams)
         twidth = max(len(" ".join(t)) for t in visible_trigrams)
         cat_width = max(len(stats[t][4]) for t in visible_trigrams)
         stats = {t: s for t, s in stats.items() if t in visible_trigrams}
 
-        extreme = lambda seq: max(map(abs, seq))
-        neg_extreme = lambda seq: -extreme(seq)
-        sqrt = lambda n: math.sqrt(n) if n >= 0 else -math.sqrt(-n)
         col_settings = (
-            {"transform": sqrt, "worst": neg_extreme, "best": extreme}, # freq
-            {"worst": extreme, "best": neg_extreme}, # avg_ms
-            {"transform": sqrt, "worst": extreme, "best": neg_extreme}, # ms
+            {"transform": math.sqrt}, # freq
+            {"worst": gui_util.extreme, "best": gui_util.neg_extreme}, # avg_ms
+            {"transform": gui_util.odd_sqrt, "worst": gui_util.extreme, 
+                "best": gui_util.neg_extreme}, # ms
         )
         pairs = gui_util.apply_scales(stats, col_settings)
 
