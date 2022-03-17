@@ -90,7 +90,7 @@ class Layout:
     
     def start_preprocessing(self):
         self.preprocessors["counts"] = threading.Thread(
-            target=calculate_counts_wrapper, args=(self,), daemon=True)
+            target=_calculate_counts_wrapper, args=(self,), daemon=True)
         for name in self.preprocessors:
             self.preprocessors[name].start()
     
@@ -235,7 +235,7 @@ def get_layout(name: str) -> Layout:
         Layout.loaded[name] = Layout(name)
     return Layout.loaded[name]
 
-def calculate_counts_wrapper(*args, **kwargs):
+def _calculate_counts_wrapper(*args, **kwargs):
     args[0].calculate_counts()
 
 # for testing
