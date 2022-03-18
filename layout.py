@@ -1,16 +1,19 @@
 import itertools
 import json
-from typing import Iterable
+from typing import Iterable, Dict, Tuple, Sequence
 import threading
 import random
+import functools
 
 import board
 import fingermap
-from nstroke import *
+from nstroke import (
+    all_tristroke_categories, Nstroke, applicable_function, tristroke_category
+)
 
 class Layout:
 
-    loaded = dict() # dict of layouts
+    loaded = {} # type: Dict[str, Layout]
 
     def __init__(
             self, name: str, preprocess: bool = True, 
@@ -19,12 +22,12 @@ class Layout:
         the layout will be built from the file at layouts/<name>. Raises
         OSError if no repr is provided and no file is found."""
         self.name = name
-        self.keys = {} # dict[Pos, str]
-        self.positions = {} # dict[str, Pos]
-        self.fingers = {} # dict[str, Finger]
-        self.coords = {} # dict[str, Coord]
+        self.keys = {} # type: Dict[fingermap.Pos, str]
+        self.positions = {} # type: Dict[str, fingermap.Pos]
+        self.fingers = {} # type: Dict[str, fingermap.Finger]
+        self.coords = {} # type: Dict[str, fingermap.Coord]
         self.counts = {category: 0 for category in all_tristroke_categories}
-        self.preprocessors = {}
+        self.preprocessors = {} # type: Dict[str, threading.Thread]
         if repr_:
             self.build_from_string(repr_)
         else:
@@ -37,8 +40,8 @@ class Layout:
         rows = []
         first_row = fingermap.Row.TOP
         first_col = 1
-        self.fingermap = None
-        self.board = None
+        fingermap_defined = False
+        board_defined = False
         for row in s.split("\n"):
             tokens = row.split(" ")
             if tokens[0] == "fingermap:" and len(tokens) >= 2:
@@ -53,9 +56,9 @@ class Layout:
                 first_col = int(tokens[2])
             else:
                 rows.append(tokens)
-        if not self.fingermap:
+        if not fingermap_defined:
             self.fingermap = fingermap.get_fingermap("traditional")
-        if not self.board:
+        if not board_defined:
             self.board = board.get_board("ansi")
         for r, row in enumerate(rows):
             for c, key in enumerate(row):
@@ -69,12 +72,8 @@ class Layout:
                         self.positions[key]]
 
     def calculate_counts(self):
-        for other_name in Layout.loaded:
-            other = Layout.loaded[other_name]
-            if (other is not self
-                and other.fingermap == self.fingermap 
-                and other.board == self.board):
-                # Will eventually need to account for alt fingering etc
+        for other in Layout.loaded.values():
+            if (other is not self and self.has_same_tristrokes(other)):
                 self.preprocessors["counts"] = other.preprocessors["counts"]
                 self.counts = other.counts
                 return
@@ -87,6 +86,13 @@ class Layout:
                 for instance in all_tristroke_categories:
                     if applicable(instance):
                         self.counts[category] += self.counts[instance]
+    
+    def has_same_tristrokes(self, other: "Layout"):
+        return (
+            self.fingermap == other.fingermap and
+            self.board == other.board and
+            set(self.coords.values()) == set(other.coords.values())
+        )
     
     def start_preprocessing(self):
         self.preprocessors["counts"] = threading.Thread(
@@ -121,6 +127,7 @@ class Layout:
             rows.append(" ".join(keys))
         return "\n".join(rows)
 
+    @functools.cache
     def to_ngram(self, nstroke: Nstroke):
         """Returns None if the Nstroke does not have a corresponding
         ngram in this layout. Otherwise, returns a tuple of key names
@@ -138,8 +145,8 @@ class Layout:
         return tuple(ngram)
 
     @functools.cache
-    def to_nstroke(self, ngram: Iterable[str], note: str = "", 
-                     fingers: Iterable[fingermap.Finger] = ...) -> Nstroke:
+    def to_nstroke(self, ngram: Tuple[str, ...], note: str = "", 
+                     fingers: Tuple[fingermap.Finger, ...] = ...):
         """Converts an ngram into an nstroke. Leave fingers blank
         to auto-calculate from the keymap. Since this uses functools.cache,
         give immutable arguments only.
@@ -154,13 +161,15 @@ class Layout:
         ngrams = itertools.product(self.keys.values(), repeat=n)
         return (self.to_nstroke(ngram) for ngram in ngrams)
 
-    def nstrokes_with_fingers(self, fingers: Iterable[fingermap.Finger]):
+    @functools.cache
+    def nstrokes_with_fingers(self, fingers: Tuple[fingermap.Finger]):
         options = []
         for finger in fingers:
             options.append((
                 self.keys[pos] for pos in self.fingermap.cols[finger] 
                     if pos in self.keys))
-        return (self.to_nstroke(item) for item in itertools.product(*options))
+        return tuple(self.to_nstroke(item) 
+            for item in itertools.product(*options))
 
     def ngrams_with_any_of(self, keys: Iterable[str], n: int = 3):
         # this method should avoid generating duplicates probably maybe
@@ -205,7 +214,7 @@ class Layout:
             with open("data/shai.json") as file:
                 corp_data = json.load(file)
             lfreqs = corp_data["letters"]
-        fing_freqs = {finger: 0.0 for finger in list(Finger)}
+        fing_freqs = {finger: 0.0 for finger in list(fingermap.Finger)}
         for finger in self.fingermap.cols:
             for pos in self.fingermap.cols[finger]:
                 try:
@@ -235,7 +244,7 @@ def get_layout(name: str) -> Layout:
         Layout.loaded[name] = Layout(name)
     return Layout.loaded[name]
 
-def _calculate_counts_wrapper(*args, **kwargs):
+def _calculate_counts_wrapper(*args: Layout):
     args[0].calculate_counts()
 
 # for testing

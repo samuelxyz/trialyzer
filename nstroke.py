@@ -1,6 +1,6 @@
 from collections import namedtuple
 import itertools
-from typing import Sequence
+from typing import Sequence, Callable
 import operator
 import functools
 
@@ -8,7 +8,6 @@ from board import Coord
 from fingermap import Finger
 
 Tristroke = namedtuple("Tristroke", "note fingers coords")
-
 Nstroke = Tristroke
 
 def bistroke(tristroke: Tristroke, index0: int, index1: int):
@@ -105,7 +104,7 @@ finger_names = {
     "P": "pinky total"
 }
 
-def applicable_function(target_category: str):
+def applicable_function(target_category: str) -> Callable[[str], bool]:
     """Given a target category, returns a function(category: str) which tells
     whether category is applicable to target_category.
     """

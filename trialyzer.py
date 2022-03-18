@@ -10,10 +10,16 @@ import json
 import time
 from typing import Callable, Iterable
 import typing
+import functools
 
 from board import Coord
 from fingermap import Finger
-from nstroke import *
+import nstroke
+from nstroke import (
+    all_bistroke_categories, all_tristroke_categories, Nstroke,
+    applicable_function, tristroke_category, category_display_names,
+    bistroke_category, hand_names, finger_names, Tristroke
+)
 import typingtest
 import curses
 import curses.textpad
@@ -2106,7 +2112,7 @@ def tristroke_medians(csv_data: dict, layout: layout.Layout):
             by_fingers[csv_tristroke.fingers] = tuple(
                 layout.nstrokes_with_fingers(csv_tristroke.fingers))
         for layout_tristroke in by_fingers[csv_tristroke.fingers]:
-            if compatible(layout_tristroke, csv_tristroke):
+            if nstroke.compatible(layout_tristroke, csv_tristroke):
                 if layout_tristroke not in speeds:
                     speeds[layout_tristroke] = csv_data[csv_tristroke]
                 else:

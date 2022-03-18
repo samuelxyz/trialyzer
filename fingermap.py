@@ -1,6 +1,6 @@
 import enum
-
 from collections import namedtuple
+from typing import Dict, List
 
 Pos = namedtuple("Pos", ["row", "col"]) # integer row and col
 
@@ -30,8 +30,8 @@ class Fingermap:
 
     def __init__(self, name: str) -> None:
         self.name = name
-        self.fingers = {} # dict[Pos, Finger]
-        self.cols = {finger: [] for finger in Finger} # dict[Finger, list[Pos]]
+        self.fingers = {} # type: Dict[Pos, Finger]
+        self.cols: Dict[Finger, List[Pos]] = {finger: [] for finger in Finger}
         with open("fingermaps/" + name) as file:
             self.build_from_string(file.read())
 
@@ -40,7 +40,8 @@ class Fingermap:
         first_row = Row.NUMBER
         first_col = 0
         for row in s.split("\n"):
-            tokens = row.split(" ") # double spaces matter so not just .split()
+            # double spaces matter so not just .split()
+            tokens = row.split(" ")
             if tokens[0] == "first_pos:" and len(tokens) >= 3:
                 try:
                     first_row = int(tokens[1])
