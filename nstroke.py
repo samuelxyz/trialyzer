@@ -1,13 +1,16 @@
-from collections import namedtuple
 import itertools
-from typing import Sequence, Callable
+from typing import Sequence, Callable, NamedTuple, Tuple
 import operator
 import functools
 
 from board import Coord
 from fingermap import Finger
 
-Tristroke = namedtuple("Tristroke", "note fingers coords")
+# Tristroke = collections.namedtuple("Tristroke", "note fingers coords")
+class Tristroke(NamedTuple):
+    note: str
+    fingers: Tuple[Finger, ...]
+    coords: Tuple[Coord, ...]
 Nstroke = Tristroke
 
 def bistroke(tristroke: Tristroke, index0: int, index1: int):

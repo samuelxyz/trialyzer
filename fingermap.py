@@ -1,8 +1,11 @@
 import enum
 from collections import namedtuple
-from typing import Dict, List
+from typing import Dict, List, NamedTuple
 
-Pos = namedtuple("Pos", ["row", "col"]) # integer row and col
+# Pos = collections.namedtuple("Pos", ["row", "col"]) # integer row and col
+class Pos(NamedTuple):
+    row: int
+    col: int
 
 class Row(enum.IntEnum):
     NUMBER = 0

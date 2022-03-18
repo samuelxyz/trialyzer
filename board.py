@@ -1,8 +1,11 @@
-from collections import namedtuple
+from typing import NamedTuple
 
 import fingermap
 
-Coord = namedtuple("Coord", ["x", "y"])
+# Coord = collections.namedtuple("Coord", ["x", "y"])
+class Coord(NamedTuple):
+    x: float
+    y: float
 
 class Board:
     

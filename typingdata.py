@@ -1,3 +1,13 @@
+# Planned as a way to consolidate medians, bistroke/tristroke speed data, etc
+# Goals:
+#   - Cache all tristroke medians/other data in one place
+#       - Compute new ones when needed
+#   - Update when csvdata is updated
+#       - dedicated add/remove functions clear affected data from caches
+#       - or mutate just the relevant data?
+#       - nah too much work for now, just rudimentary cache clearing
+#       - may do more fancy things later
+
 import csv
 import functools
 import itertools
@@ -12,17 +22,6 @@ from board import Coord
 from fingermap import Finger
 from layout import Layout
 from nstroke import Nstroke, Tristroke
-
-# Planned as a way to consolidate medians, bistroke/tristroke speed data, etc
-# Goals:
-#   - Cache all tristroke medians/other data in one place
-#       - Compute new ones when needed
-#   - Update when csvdata is updated
-#       - dedicated add/remove functions clear affected data from caches
-#       - or mutate just the relevant data?
-#       - to switch csvfiles, just wipe everything
-#       - should the filename be a field then? yeah ig
-#   - 
 
 def _find_existing_cached(cache, layout_: Layout):
     """Finds a cached property by looking up cache[layout_.name]. Will 
@@ -45,11 +44,15 @@ class TypingData:
     def __init__(self, csv_filename: str) -> None:
         """Raises OSError if data/csv_filename.csv not found."""
         self.csv_filename = csv_filename
-        self.load_csv()
-
+        
         # csv_data[tristroke] -> ([speeds_01], [speeds_12])
         self.csv_data: Dict[Tristroke, Tuple[List, List]]
         self.csv_data = defaultdict(lambda: ([], []))
+
+        try:
+            self.load_csv()
+        except OSError:
+            pass # just let the data be written upon save
 
         # medians[tristroke] -> (speed_01, speed_12, speed_02)
         self.tri_medians: Dict[Tristroke, Tuple[float, float, float]] 
@@ -72,10 +75,17 @@ class TypingData:
         # speed_funcs[layout_name] -> speed_func(tristroke) -> (speed, exact)
         self.speed_funcs: Dict[str, Callable[[Tristroke], Tuple[float, bool]]]
         self.speed_funcs = {}
+
+    def refresh(self):
+        """Clears caches; they will be repopulated when needed"""
+        for cache in (
+                self.tri_medians, self.exact_tristrokes, self.bicatdata, 
+                self.tricatdata, self.tribreakdowns, self.speed_funcs):
+            cache.clear()
     
     def load_csv(self):
-        with open("data/" + self.csv_filename + ".csv", 
-                "r", newline="") as csvfile:
+        with open(f"data/{self.csv_filename}.csv", "r", 
+                newline="") as csvfile:
             reader = csv.DictReader(csvfile, restkey="speeds")
             for row in reader:
                 if "speeds" not in row:
@@ -101,7 +111,7 @@ class TypingData:
             for tristroke in self.csv_data:
                 if not self.csv_data[tristroke] or not self.csv_data[tristroke][0]:
                     continue
-                row = self._start_csv_row(tristroke)
+                row: List = self._start_csv_row(tristroke)
                 row.extend(itertools.chain.from_iterable(
                     zip(self.csv_data[tristroke][0], 
                         self.csv_data[tristroke][1])))
@@ -174,11 +184,12 @@ class TypingData:
                     self.calc_medians_for_tristroke(layout_tristroke) # cache
                     result.add(layout_tristroke)
 
-        self.exact_tristrokes_for_layout[layout_.name] = result
+        self.exact_tristrokes[layout_.name] = result
         return result
 
     # May cache this eventually but it's probably not worth
     def amalgamated_bistroke_medians(self, layout_: Layout):
+        """Note that the returned dict is a defaultdict."""
         bi_medians: Dict[Nstroke, float] = defaultdict(list)
         for tristroke in self.exact_tristrokes_for_layout(layout_):
             bi0 = (
@@ -218,7 +229,7 @@ class TypingData:
         known_medians: Dict[str, List[float]]
         known_medians = defaultdict(list) # cat -> [speeds]
         total = [] # list[median]
-        for tristroke in self.exact_tristrokes_for_layout():
+        for tristroke in self.exact_tristrokes_for_layout(layout_):
             for indices in ((0, 1), (1, 2)):
                 data = self.tri_medians[tristroke][indices[0]]
                 total.append(data)

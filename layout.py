@@ -28,6 +28,7 @@ class Layout:
         self.coords = {} # type: Dict[str, fingermap.Coord]
         self.counts = {category: 0 for category in all_tristroke_categories}
         self.preprocessors = {} # type: Dict[str, threading.Thread]
+        self.nstroke_cache = {} # type: Dict[Tuple[str, ...], Nstroke]
         if repr_:
             self.build_from_string(repr_)
         else:
@@ -46,8 +47,10 @@ class Layout:
             tokens = row.split(" ")
             if tokens[0] == "fingermap:" and len(tokens) >= 2:
                 self.fingermap = fingermap.get_fingermap(tokens[1])
+                fingermap_defined = True
             elif tokens[0] == "board:" and len(tokens) >= 2:
                 self.board = board.get_board(tokens[1])
+                board_defined = True
             elif tokens[0] == "first_pos:" and len(tokens) >= 3:
                 try:
                     first_row = int(tokens[1])
@@ -127,7 +130,6 @@ class Layout:
             rows.append(" ".join(keys))
         return "\n".join(rows)
 
-    @functools.cache
     def to_ngram(self, nstroke: Nstroke):
         """Returns None if the Nstroke does not have a corresponding
         ngram in this layout. Otherwise, returns a tuple of key names
@@ -144,18 +146,37 @@ class Layout:
             return None
         return tuple(ngram)
 
-    @functools.cache
+    #@functools.cache
     def to_nstroke(self, ngram: Tuple[str, ...], note: str = "", 
-                     fingers: Tuple[fingermap.Finger, ...] = ...):
+                     fingers: Tuple[fingermap.Finger, ...] = ...,
+                     overwrite_cache: bool = False):
         """Converts an ngram into an nstroke. Leave fingers blank
         to auto-calculate from the keymap. Since this uses functools.cache,
         give immutable arguments only.
+
+        Raises KeyError if a key is not found in the layout.
         """
+        args = (ngram, note, fingers)
+        is_pure_ngram = (note == "" and fingers == ...)
+        if not overwrite_cache:
+            try:
+                if is_pure_ngram:
+                    return self.nstroke_cache[ngram]
+                else:
+                    return self.nstroke_cache[args]
+            except KeyError:
+                pass
         
         if fingers == ...:
             fingers = (self.fingers[key] for key in ngram)
-        return Nstroke(note, tuple(fingers),
+        result = Nstroke(note, tuple(fingers),
                       tuple(self.coords[key] for key in ngram))
+                      
+        if is_pure_ngram:
+            self.nstroke_cache[ngram] = result
+        else:
+            self.nstroke_cache[args] = result
+        return result
 
     def all_nstrokes(self, n: int = 3):
         ngrams = itertools.product(self.keys.values(), repeat=n)
@@ -191,7 +212,6 @@ class Layout:
                 yield ngram
 
     def swap(self, keys: Sequence[str]):
-        self.to_nstroke.cache_clear()
         (self.keys[self.positions[keys[1]]], 
             self.keys[self.positions[keys[0]]]) = keys
         self.positions[keys[1]], self.positions[keys[0]] = (
@@ -200,6 +220,10 @@ class Layout:
             self.fingers[keys[0]], self.fingers[keys[1]])
         self.coords[keys[1]], self.coords[keys[0]] = (
             self.coords[keys[0]], self.coords[keys[1]])
+        self.nstrokes_with_fingers.cache_clear()
+        # self.to_nstroke.cache_clear()
+        for ngram in self.ngrams_with_any_of(keys):
+            self.to_nstroke(ngram, overwrite_cache=True)
 
     def shuffle(self, swaps: int = 100, pins: Iterable[str] = tuple()):
         keys = set(self.keys.values())
