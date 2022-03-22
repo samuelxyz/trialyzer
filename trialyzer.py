@@ -1696,8 +1696,9 @@ def main(stdscr: curses.window):
             frequent_trigrams = frequent_trigrams[:rows_each]
         visible_trigrams = set(
             best_trigrams + worst_trigrams + frequent_trigrams)
-        twidth = max(len(" ".join(t)) for t in visible_trigrams)
-        cat_width = max(len(stats[t][4]) for t in visible_trigrams)
+        twidth = max((len(" ".join(t)) for t in visible_trigrams), default=5)
+        cat_width = max((len(stats[t][4]) for t in visible_trigrams), 
+            default=12)
         stats = {t: s for t, s in stats.items() if t in visible_trigrams}
 
         col_settings = (
@@ -2050,7 +2051,7 @@ def trigrams_in_list(
     speed_calc =  typingdata_.tristroke_speed_calculator(layout_)
     for trigram in trigrams:
         try:
-            freq = trigram_freqs["".join(trigram)]
+            freq = trigram_freqs[trigram]
             tristroke = layout_.to_nstroke(trigram)
         except KeyError:
             continue
