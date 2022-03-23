@@ -100,16 +100,17 @@ class TypingData:
                 for i, time in enumerate(row["speeds"]):
                     self.csv_data[tristroke][i%2].append(float(time))
     
-    def save_csv(self, filename: str):
+    def save_csv(self):
         header = [
             "note", "finger0", "finger1", "finger2",
             "x0", "y0", "x1", "y1", "x2", "y2"
         ]
-        with open("data/" + filename + ".csv", "w", newline="") as csvfile:
+        with open(f"data/{self.csv_filename}.csv", "w", newline="") as csvfile:
             w = csv.writer(csvfile)
             w.writerow(header)
             for tristroke in self.csv_data:
-                if not self.csv_data[tristroke] or not self.csv_data[tristroke][0]:
+                if (not self.csv_data[tristroke] 
+                        or not self.csv_data[tristroke][0]):
                     continue
                 row: List = self._start_csv_row(tristroke)
                 row.extend(itertools.chain.from_iterable(
@@ -117,7 +118,7 @@ class TypingData:
                         self.csv_data[tristroke][1])))
                 w.writerow(row)
     
-    def _start_csv_row(tristroke: Tristroke):
+    def _start_csv_row(self, tristroke: Tristroke):
         """Order of returned data: note, fingers, coords"""
         
         result = [tristroke.note]
