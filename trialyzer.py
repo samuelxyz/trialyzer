@@ -178,9 +178,12 @@ def main(stdscr: curses.window):
                         data[category][1]/counts[category])
                 else:
                     completion[category] = 0
+            madm5 = gui_util.MAD_z(-5.0)
+            mad5 = gui_util.MAD_z(5.0)
             for category in data:
                 p_pairs[category] = curses.color_pair(gui_util.color_scale(
-                    min(filter(None, completion.values())), max(completion.values()),
+                    madm5(filter(None, completion.values())), 
+                    mad5(completion.values()),
                     completion[category], True))
                 c_pairs[category] = curses.color_pair(gui_util.color_scale(
                     cmin, cmax, log_counts[category], True))
@@ -434,7 +437,7 @@ def main(stdscr: curses.window):
                     "Be sure to use {} {} {}".format(*fingers),
                     gui_util.blue)
         elif len(args) == 3:
-            tristroke = user_layout.to_nstroke(args)
+            tristroke = user_layout.to_nstroke(tuple(args))
         elif len(args) == 1 and len(args[0]) == 3:
             tristroke = user_layout.to_nstroke(tuple(args[0]))
         else:
@@ -1191,6 +1194,15 @@ def main(stdscr: curses.window):
             if pin_positions[key] != working_lay.positions[key]:
                 working_lay = layout.Layout(target_layout.name, False)
                 break
+
+        # ideally this wouldn't be necessary, but pins exceeding the pinky cap
+        # would cause trouble. Maybe improve this in the future
+        # finger_freqs = working_lay.frequency_by_finger()
+        # initial_pinky_freq = max(
+        #     finger_freqs[Finger.RP], finger_freqs[Finger.LP])
+        # if pinky_cap < initial_pinky_freq:
+        #     pinky_cap = initial_pinky_freq
+
         message("Shuffling & ascending... >>>", gui_util.green)
         
         best_score = layout_speed(
@@ -1201,9 +1213,16 @@ def main(stdscr: curses.window):
         for iteration in range(num_iterations):
             working_lay.shuffle(pins=pins)
             finger_freqs = working_lay.frequency_by_finger()
+            num_shuffles = 0
             while (max(finger_freqs[Finger.LP], finger_freqs[Finger.RP]) 
                     > pinky_cap):
                 working_lay.shuffle(pins=pins)
+                num_shuffles += 1
+                if num_shuffles >= 100000:
+                    message("Unable to satisfy pinky cap after shuffling"
+                        f" {num_shuffles} times. Check your pins?", 
+                        gui_util.red, right_pane)
+                    return
             initial_score = layout_speed(
                 working_lay, typingdata_, trigram_freqs)[0]
             message(f"\nShuffle/Attempt {iteration}\n"
@@ -1879,8 +1898,10 @@ def main(stdscr: curses.window):
             command = args.pop(0).lower()
         except ValueError:
             num_repetitions = 1
+        original_args = args.copy()
         
         for _ in range(num_repetitions):
+            args = original_args.copy()
             if command in ("q", "quit"):
                 return
             elif command in ("t", "type"):

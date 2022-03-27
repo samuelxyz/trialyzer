@@ -211,7 +211,7 @@ class Layout:
                 # yield self.to_nstroke(ngram)
                 yield ngram
 
-    def swap(self, keys: Sequence[str]):
+    def swap(self, keys: Sequence[str], refresh_cache: bool = True):
         (self.keys[self.positions[keys[1]]], 
             self.keys[self.positions[keys[0]]]) = keys
         self.positions[keys[1]], self.positions[keys[0]] = (
@@ -222,8 +222,9 @@ class Layout:
             self.coords[keys[0]], self.coords[keys[1]])
         self.nstrokes_with_fingers.cache_clear()
         # self.to_nstroke.cache_clear()
-        for ngram in self.ngrams_with_any_of(keys):
-            self.to_nstroke(ngram, overwrite_cache=True)
+        if refresh_cache:
+            for ngram in self.ngrams_with_any_of(keys):
+                self.to_nstroke(ngram, overwrite_cache=True)
 
     def shuffle(self, swaps: int = 100, pins: Iterable[str] = tuple()):
         keys = set(self.keys.values())
@@ -231,7 +232,8 @@ class Layout:
             keys.discard(key)
         random.seed()
         for _ in range(swaps):
-            self.swap(random.sample(keys, k=2))
+            self.swap(random.sample(keys, k=2), False)
+        self.nstroke_cache.clear()
 
     def frequency_by_finger(self, lfreqs = ...):
         if lfreqs == ...:
