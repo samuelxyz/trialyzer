@@ -1,6 +1,6 @@
 import itertools
 import json
-from typing import Iterable, Dict, Tuple, Sequence
+from typing import Container, Iterable, Dict, Tuple, Sequence,  Callable
 import threading
 import random
 import functools
@@ -233,6 +233,11 @@ class Layout:
         random.seed()
         for _ in range(swaps):
             self.swap(random.sample(keys, k=2), False)
+        self.nstroke_cache.clear()
+
+    def constrained_shuffle(self, shuffle_source: Callable, swaps: int = 100):
+        for _ in range(swaps):
+            self.swap(shuffle_source(), False)
         self.nstroke_cache.clear()
 
     def frequency_by_finger(self, lfreqs = ...):

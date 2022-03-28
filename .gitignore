@@ -1,4 +1,5 @@
 /trivenv
+/.trivenv
 /__pycache__
 /.vscode
 /data/*.csv

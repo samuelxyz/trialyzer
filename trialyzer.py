@@ -2,34 +2,32 @@
 # Contains main user interface and analysis features
 
 import csv
-import itertools
-import multiprocessing
-import operator
-import random
-import statistics
-import os
-import math
-import json
-import time
-from typing import Callable, Iterable
-import typing
-import functools
-
 import curses
 import curses.textpad
+import itertools
+import json
+import math
+import multiprocessing
+import operator
+import os
+import random
+import statistics
+import time
+import typing
+from typing import Callable, Iterable
 
-from board import Coord
-from fingermap import Finger
-import nstroke
-from nstroke import (
-    all_bistroke_categories, all_tristroke_categories, Nstroke,
-    applicable_function, tristroke_category, category_display_names,
-    bistroke_category, hand_names, finger_names, Tristroke
-)
-import typingtest
-import layout
+import constraintmap
 import gui_util
+import layout
+import typingtest
+from fingermap import Finger
+from constraintmap import Constraintmap
+from nstroke import (Nstroke, Tristroke, all_bistroke_categories,
+                     all_tristroke_categories, applicable_function,
+                     bistroke_category, category_display_names, finger_names,
+                     hand_names, tristroke_category)
 from typingdata import TypingData
+
 
 def main(stdscr: curses.window):
     
@@ -59,6 +57,13 @@ def main(stdscr: curses.window):
         except (KeyError, ValueError):
             trigram_precision = 500
             some_default = True
+        try:
+            active_constraintmap = constraintmap.get_constraintmap(
+                settings["constraintmap"])
+        except (KeyError, OSError):
+            active_constraintmap = constraintmap.get_constraintmap(
+                "traditional-default")
+            some_default = True
         startup_messages.append(("Loaded user settings", gui_util.green))
         if some_default:
             startup_messages.append((
@@ -68,6 +73,8 @@ def main(stdscr: curses.window):
         analysis_target = layout.get_layout("qwerty")
         user_layout = layout.get_layout("qwerty")
         trigram_precision = 500
+        active_constraintmap = constraintmap.get_constraintmap(
+            "traditional-default")
         startup_messages.append(("Using default user settings", gui_util.red))
 
     typingdata_ = TypingData(active_speeds_file)
@@ -95,6 +102,7 @@ def main(stdscr: curses.window):
                 {   "analysis_target": analysis_target.name,
                     "user_layout": user_layout.name,
                     "active_speeds_file": active_speeds_file,
+                    "constraintmap": active_constraintmap.name,
                     "trigram_precision": trigram_precision,
                 }, settings_file)
 
@@ -112,6 +120,7 @@ def main(stdscr: curses.window):
             f"User layout: {user_layout}",
             f"Active speeds file: {active_speeds_file}"
             f" (/data/{active_speeds_file}.csv)",
+            f"Generation constraintmap: {active_constraintmap.name}",
             f"Trigrams used: {precision_text} ({trigram_percent:.3%})"
         ]
 
@@ -1090,14 +1099,6 @@ def main(stdscr: curses.window):
 
     def cmd_improve():
         nonlocal analysis_target
-        pinky_cap = 0.1 # reasonable default
-        for item in args:
-            try:
-                pinky_cap = float(item)
-                args.remove(item)
-                break
-            except ValueError:
-                continue
         pins = []
         if "pin" in args:
             while True:
@@ -1107,12 +1108,12 @@ def main(stdscr: curses.window):
                 else:
                     pins.append(token)
         if args:
-            layout_name = " ".join(args)
-            try:
-                target_layout = layout.get_layout(layout_name)
-            except OSError:
-                message(f"/layouts/{layout_name} was not found.", 
-                        gui_util.red)
+            layout_, _ = extract_layout_front(args)
+            if layout_ is not None:
+                target_layout = layout_
+            else:
+                message(f"/layouts/{' '.join(args)} was not found", 
+                    gui_util.red)
                 return
         else:
             target_layout = analysis_target
@@ -1126,7 +1127,8 @@ def main(stdscr: curses.window):
         num_swaps = 0
         optimized = target_layout
         for optimized, score, swap in steepest_ascent(
-            target_layout, typingdata_, trigram_freqs, pins, pinky_cap
+            target_layout, typingdata_, trigram_freqs, 
+            active_constraintmap, pins
         ):
             num_swaps += 1
             repr_ = repr(optimized)
@@ -1158,15 +1160,7 @@ def main(stdscr: curses.window):
                 args.remove(item)
                 break
             except ValueError:
-                continue
-        pinky_cap = 0.1 # reasonable default
-        for item in args:
-            try:
-                pinky_cap = float(item)
-                args.remove(item)
-                break
-            except ValueError:
-                continue
+                continue        
         pins = []
         if "pin" in args:
             while True:
@@ -1176,12 +1170,12 @@ def main(stdscr: curses.window):
                 else:
                     pins.append(token)
         if args:
-            layout_name = " ".join(args)
-            try:
-                target_layout = layout.get_layout(layout_name)
-            except OSError:
-                message(f"/layouts/{layout_name} was not found.", 
-                        gui_util.red)
+            layout_, _ = extract_layout_front(args)
+            if layout_ is not None:
+                target_layout = layout_
+            else:
+                message(f"/layouts/{' '.join(args)} was not found", 
+                    gui_util.red)
                 return
         else:
             target_layout = analysis_target
@@ -1210,18 +1204,28 @@ def main(stdscr: curses.window):
         message(f"Initial best: avg_ms = {best_score:.4f}\n"
                 + repr(working_lay), win=right_pane)
 
+        with open("data/shai.json") as file:
+            corp_data = json.load(file)
+        lfreqs = corp_data["letters"]
+        total_lfreq = sum(lfreqs[key] for key in working_lay.positions
+            if key in lfreqs)
+        for key in lfreqs:
+            lfreqs[key] /= total_lfreq
+
+        def shuffle_source():
+            return active_constraintmap.random_legal_swap(
+                working_lay, lfreqs, pins)
+
         for iteration in range(num_iterations):
-            working_lay.shuffle(pins=pins)
-            finger_freqs = working_lay.frequency_by_finger()
+            working_lay.constrained_shuffle(shuffle_source)
             num_shuffles = 0
-            while (max(finger_freqs[Finger.LP], finger_freqs[Finger.RP]) 
-                    > pinky_cap):
-                working_lay.shuffle(pins=pins)
+            while (not active_constraintmap.is_layout_legal(working_lay)):
+                working_lay.constrained_shuffle(shuffle_source)
                 num_shuffles += 1
                 if num_shuffles >= 100000:
-                    message("Unable to satisfy pinky cap after shuffling"
-                        f" {num_shuffles} times. Check your pins?", 
-                        gui_util.red, right_pane)
+                    message("Unable to satisfy constraintmap after shuffling"
+                        f" {num_shuffles} times. Constraintmap/pins might be"
+                        " too strict?", gui_util.red, right_pane)
                     return
             initial_score = layout_speed(
                 working_lay, typingdata_, trigram_freqs)[0]
@@ -1232,8 +1236,8 @@ def main(stdscr: curses.window):
             num_swaps = 0
             optimized = working_lay
             for optimized, score, swap in steepest_ascent(
-                working_lay, typingdata_, trigram_freqs, 
-                pins, pinky_cap, "-best"
+                working_lay, typingdata_, trigram_freqs, active_constraintmap,
+                pins, "-best"
             ):
                 num_swaps += 1
                 repr_ = repr(optimized)
@@ -1273,14 +1277,6 @@ def main(stdscr: curses.window):
                 break
             except ValueError:
                 continue
-        pinky_cap = 0.1 # reasonable default
-        for item in args:
-            try:
-                pinky_cap = float(item)
-                args.remove(item)
-                break
-            except ValueError:
-                continue
         pins = []
         if "pin" in args:
             while True:
@@ -1290,16 +1286,16 @@ def main(stdscr: curses.window):
                 else:
                     pins.append(token)
         if args:
-            layout_name = " ".join(args)
-            try:
-                target_layout = layout.get_layout(layout_name)
-            except OSError:
-                message(f"/layouts/{layout_name} was not found.", 
-                        gui_util.red)
+            layout_, _ = extract_layout_front(args)
+            if layout_ is not None:
+                target_layout = layout_
+            else:
+                message(f"/layouts/{' '.join(args)} was not found", 
+                    gui_util.red)
                 return
         else:
             target_layout = analysis_target
-        
+
         message("Annealing... >>>", gui_util.green)
 
         initial_score = layout_speed(
@@ -1311,8 +1307,8 @@ def main(stdscr: curses.window):
         last_time = -1
         optimized = target_layout
         for optimized, i, temperature, delta, score, swap in anneal(
-            target_layout, typingdata_, trigram_freqs,
-            pins, pinky_cap, "-annealed", num_iterations
+            target_layout, typingdata_, trigram_freqs, active_constraintmap,
+            pins, "-annealed", num_iterations
         ):
             current_time = time.perf_counter()
             if current_time - last_time < 0.5:
@@ -1360,6 +1356,18 @@ def main(stdscr: curses.window):
         message(f"Set trigram precision to {args[0]} ({trigram_percent:.3%})", 
             gui_util.green)
 
+    def cmd_constraintmap():
+        nonlocal active_constraintmap
+        try: 
+            active_constraintmap = constraintmap.get_constraintmap(
+                " ".join(args))
+            save_session_settings()
+            message(f"Set constraintmap to {active_constraintmap.name}",
+                gui_util.green)
+        except OSError:
+            message(f"/constraintmaps/{' '.join(args)} was not found.",
+                gui_util.red)
+
     def cmd_help():
         help_text = [
             "",
@@ -1402,11 +1410,12 @@ def main(stdscr: curses.window):
             "tgcdiff [baseline_layout] <layout> <args for tgc>: "
                 "Like tgc but shows how trigrams vary between layouts",
             "----Editing/Optimization----",
-            "i[mprove] [layout name] [pinky cap] [pin <keys>]: "
+            "cm|constraintmap [constraintmap name]: Set constraintmap",
+            "i[mprove]|ascend [layout name] [pin <keys>]: "
                 "Optimize using steepest ascent swaps",
-            "si [layout name] [n] [pinky cap] [pin <keys>]: "
+            "si [layout name] [n] [pin <keys>]: "
                 "Shuffle and run steepest ascent n times, saving the best",
-            "anneal [layout name] [n] [pinky cap] [pin <keys>]: "
+            "anneal [layout name] [n] [pin <keys>]: "
                 "Optimize with simulated annealing"
         ]
         ymax = right_pane.getmaxyx()[0]
@@ -1944,7 +1953,7 @@ def main(stdscr: curses.window):
                 cmd_tristroke()
             elif command == "df":
                 cmd_speeds_file()
-            elif command in ("i", "improve"):
+            elif command in ("i", "improve", "ascend"):
                 cmd_improve()
             elif command in ("si",):
                 cmd_si()
@@ -1952,6 +1961,8 @@ def main(stdscr: curses.window):
                 cmd_anneal()
             elif command == "precision":
                 cmd_precision()
+            elif command in ("cm", "constraintmap"):
+                cmd_constraintmap()
             elif command in ("h", "help"):
                 cmd_help()
             elif command in ("tsc",):
@@ -2432,11 +2443,9 @@ def key_analysis(layout_: layout.Layout, typingdata_: TypingData,
     return stats
 
 def steepest_ascent(layout_: layout.Layout, typingdata_: TypingData,
-        trigram_freqs: dict, pins: Iterable[str] = tuple(), 
-        pinky_cap: float = 1.0, suffix: str = "-ascended"):
+        trigram_freqs: dict, constraintmap_: Constraintmap, 
+        pins: Iterable[str] = tuple(), suffix: str = "-ascended"):
     """Yields (newlayout, score, swap_made) after each step.
-    
-    pinky_cap is max letter freq. Layouts can get weird without it.
     """
     lay = layout.Layout(layout_.name, False, repr(layout_))
     if not lay.name.endswith(suffix):
@@ -2457,13 +2466,11 @@ def steepest_ascent(layout_: layout.Layout, typingdata_: TypingData,
     with open("data/shai.json") as file:
         corp_data = json.load(file)
     lfreqs = corp_data["letters"]
-
-    finger_freqs = lay.frequency_by_finger()
-    initial_pinky_freq = max(
-        finger_freqs[Finger.RP], finger_freqs[Finger.LP])
-    if pinky_cap < initial_pinky_freq:
-        pinky_cap = initial_pinky_freq
-    
+    total_lfreq = sum(lfreqs[key] for key in layout_.positions
+        if key in lfreqs)
+    for key in lfreqs:
+        lfreqs[key] /= total_lfreq
+        
     scores = [total_time/total_freq]
     with multiprocessing.Pool(4) as pool:
         while True:
@@ -2479,14 +2486,13 @@ def steepest_ascent(layout_: layout.Layout, typingdata_: TypingData,
             #         best_data = data
             swaps = itertools.combinations(swappable, 2)
             args = ((swap, total_freq, known_freq, total_time, lay,
-                     trigram_freqs, speed_dict, lfreqs)
-                for swap in swaps)
+                     trigram_freqs, speed_dict)
+                for swap in swaps if constraintmap_.is_swap_legal(
+                    lay, lfreqs, swap
+                ))
             datas = pool.starmap(swapped_score, args, 200)
             try:
-                best = min(
-                    filter(lambda d: d[4] <= pinky_cap, datas),
-                    key=lambda d: d[2]/d[0]
-                )
+                best = min(datas, key=lambda d: d[2]/d[0])
             except ValueError:
                 return # no swaps exist
             best_swap = best[3]
@@ -2504,9 +2510,9 @@ def steepest_ascent(layout_: layout.Layout, typingdata_: TypingData,
 def swapped_score(
         swap: tuple[str], total_freq, known_freq, total_time,
         lay: layout.Layout, trigram_freqs: dict, 
-        speed_func: typing.Union[Callable, dict], lfreqs: dict):
+        speed_func: typing.Union[Callable, dict]):
     # swaps should be length 2
-    """(total_freq, known_freq, total_time, swap, higher_pinky%)"""
+    """(total_freq, known_freq, total_time, swap)"""
     
     def swapped_ngram(ngram: typing.Tuple[str, ...]):
         swapped = []
@@ -2546,40 +2552,15 @@ def swapped_score(
             known_freq += tfreq
         total_time += speed * tfreq
         total_freq += tfreq
-        
-    # pinky usage is calculated because otherwise layouts can get ridiculous
-    freq_lp = 0
-    freq_rp = 0
-    total_lfreq = 0
-    for finger in lay.fingermap.cols:
-        for pos in lay.fingermap.cols[finger]:
-            try:
-                key = lay.keys[pos]
-                if key == swap[0]:
-                    key = swap[1]
-                elif key == swap[1]:
-                    key = swap[0]
-                lfreq = lfreqs[key]
-            except KeyError:
-                continue
-            total_lfreq += lfreq
-            if finger == finger.RP:
-                freq_rp += lfreq
-            elif finger == finger.LP:
-                freq_lp += lfreq
     
-    return (total_freq, known_freq, total_time, 
-        swap, max(freq_lp, freq_rp)/total_lfreq)
+    return (total_freq, known_freq, total_time, swap)
 
 def anneal(layout_: layout.Layout, typingdata_: TypingData,
-        trigram_freqs: dict, pins: Iterable[str] = tuple(), 
-        pinky_cap: float = 1.0, suffix: str = "-annealed", 
+        trigram_freqs: dict, constraintmap_: Constraintmap,
+        pins: Iterable[str] = tuple(), suffix: str = "-annealed",
         iterations: int = 10000):
     """Yields (layout, i, temperature, delta, score, swap) 
-    when a swap is successful.
-    
-    pinky_cap is max letter freq. Layouts can get weird without it.
-    """
+    when a swap is successful."""
     lay = layout.Layout(layout_.name, False, repr(layout_))
     if not lay.name.endswith(suffix):
         lay.name += suffix
@@ -2598,12 +2579,10 @@ def anneal(layout_: layout.Layout, typingdata_: TypingData,
     with open("data/shai.json") as file:
         corp_data = json.load(file)
     lfreqs = corp_data["letters"]
-
-    finger_freqs = lay.frequency_by_finger()
-    initial_pinky_freq = max(
-        finger_freqs[Finger.RP], finger_freqs[Finger.LP])
-    if pinky_cap < initial_pinky_freq:
-        pinky_cap = initial_pinky_freq
+    total_lfreq = sum(lfreqs[key] for key in layout_.positions
+        if key in lfreqs)
+    for key in lfreqs:
+        lfreqs[key] /= total_lfreq
     
     scores = [total_time/total_freq]
     T0 = 10
@@ -2613,14 +2592,11 @@ def anneal(layout_: layout.Layout, typingdata_: TypingData,
     random.seed()
     for i in range(iterations):
         temperature = T0*math.exp(-k*i/iterations)
-        swap = random.sample(swappable, k=2)
+        swap = constraintmap_.random_legal_swap(lay, lfreqs, pins)
         data = swapped_score(swap, total_freq, known_freq, total_time,
-            lay, trigram_freqs, speed_func, lfreqs)
+            lay, trigram_freqs, speed_func)
         score = data[2]/data[0]
         delta = score - scores[-1]
-        
-        if data[4] > pinky_cap:
-            continue
 
         if score > scores[-1]:
             p = math.exp(-delta/temperature)

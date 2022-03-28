@@ -1,5 +1,5 @@
 import enum
-from collections import namedtuple
+#from collections import namedtuple
 from typing import Dict, List, NamedTuple
 
 # Pos = collections.namedtuple("Pos", ["row", "col"]) # integer row and col
