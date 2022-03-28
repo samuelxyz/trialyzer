@@ -37,7 +37,7 @@ class Constraintmap:
                     self.caps[pos] = freq
 
     def is_layout_legal(self, layout_: Layout, key_freqs: Dict[str, float]):
-        for key, pos in layout_.positions.values():
+        for key, pos in layout_.positions.items():
             if key_freqs[key] > self.caps.get(pos, 1.0):
                 return False
         return True

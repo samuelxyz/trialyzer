@@ -2,17 +2,17 @@ import enum
 #from collections import namedtuple
 from typing import Dict, List, NamedTuple
 
-# Pos = collections.namedtuple("Pos", ["row", "col"]) # integer row and col
-class Pos(NamedTuple):
-    row: int
-    col: int
-
 class Row(enum.IntEnum):
     NUMBER = 0
     TOP = 1
     HOME = 2
     BOTTOM = 3
     THUMB = 4
+
+# Pos = collections.namedtuple("Pos", ["row", "col"]) # integer row and col
+class Pos(NamedTuple):
+    row: Row
+    col: int
 
 class Finger(enum.IntEnum):
     LP = -5

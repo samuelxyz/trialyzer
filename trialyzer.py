@@ -1219,7 +1219,7 @@ def main(stdscr: curses.window):
         for iteration in range(num_iterations):
             working_lay.constrained_shuffle(shuffle_source)
             num_shuffles = 0
-            while (not active_constraintmap.is_layout_legal(working_lay)):
+            while (not active_constraintmap.is_layout_legal(working_lay, lfreqs)):
                 working_lay.constrained_shuffle(shuffle_source)
                 num_shuffles += 1
                 if num_shuffles >= 100000:
