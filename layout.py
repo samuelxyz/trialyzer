@@ -1,6 +1,6 @@
 import itertools
 import json
-from typing import Container, Iterable, Dict, Tuple, Sequence,  Callable
+from typing import Iterable, Dict, Tuple, Callable
 import threading
 import random
 import functools
@@ -25,7 +25,7 @@ class Layout:
         self.keys = {} # type: Dict[fingermap.Pos, str]
         self.positions = {} # type: Dict[str, fingermap.Pos]
         self.fingers = {} # type: Dict[str, fingermap.Finger]
-        self.coords = {} # type: Dict[str, fingermap.Coord]
+        self.coords = {} # type: Dict[str, board.Coord]
         self.counts = {category: 0 for category in all_tristroke_categories}
         self.preprocessors = {} # type: Dict[str, threading.Thread]
         self.nstroke_cache = {} # type: Dict[Tuple[str, ...], Nstroke]
@@ -211,19 +211,19 @@ class Layout:
                 # yield self.to_nstroke(ngram)
                 yield ngram
 
-    def swap(self, keys: Sequence[str], refresh_cache: bool = True):
-        (self.keys[self.positions[keys[1]]], 
-            self.keys[self.positions[keys[0]]]) = keys
-        self.positions[keys[1]], self.positions[keys[0]] = (
-            self.positions[keys[0]], self.positions[keys[1]])
-        self.fingers[keys[1]], self.fingers[keys[0]] = (
-            self.fingers[keys[0]], self.fingers[keys[1]])
-        self.coords[keys[1]], self.coords[keys[0]] = (
-            self.coords[keys[0]], self.coords[keys[1]])
+    def remap(self, remap: dict[str, str], refresh_cache: bool = True):
+        k = {self.positions[dest]: key for key, dest in remap.items()}
+        p = {key: self.positions[dest] for key, dest in remap.items()}
+        f = {key: self.fingers[dest] for key, dest in remap.items()}
+        c = {key: self.coords[dest] for key, dest in remap.items()}
+        self.keys.update(k)
+        self.positions.update(p)
+        self.fingers.update(f)
+        self.coords.update(c)
         self.nstrokes_with_fingers.cache_clear()
         # self.to_nstroke.cache_clear()
         if refresh_cache:
-            for ngram in self.ngrams_with_any_of(keys):
+            for ngram in self.ngrams_with_any_of(remap):
                 self.to_nstroke(ngram, overwrite_cache=True)
 
     def shuffle(self, swaps: int = 100, pins: Iterable[str] = tuple()):
@@ -232,12 +232,12 @@ class Layout:
             keys.discard(key)
         random.seed()
         for _ in range(swaps):
-            self.swap(random.sample(keys, k=2), False)
+            self.remap(random.sample(keys, k=2), False)
         self.nstroke_cache.clear()
 
     def constrained_shuffle(self, shuffle_source: Callable, swaps: int = 100):
         for _ in range(swaps):
-            self.swap(shuffle_source(), False)
+            self.remap(shuffle_source(), False)
         self.nstroke_cache.clear()
 
     def frequency_by_finger(self, lfreqs = ...):

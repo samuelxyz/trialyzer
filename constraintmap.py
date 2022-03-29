@@ -1,8 +1,9 @@
 import random
-from typing import Container, Dict, Tuple
+from typing import Container
 
 from fingermap import Pos, Row
 from layout import Layout
+import remap
 
 class Constraintmap:
 
@@ -10,7 +11,7 @@ class Constraintmap:
 
     def __init__(self, name: str) -> None:
         self.name = name
-        self.caps = {} # type: Dict[Pos, float]
+        self.caps = {} # type: dict[Pos, float]
         with open("constraintmaps/" + name) as file:
             self.build_from_string(file.read())
 
@@ -36,21 +37,22 @@ class Constraintmap:
                     pos = Pos(r + first_row, c + first_col)
                     self.caps[pos] = freq
 
-    def is_layout_legal(self, layout_: Layout, key_freqs: Dict[str, float]):
+    def is_layout_legal(self, layout_: Layout, key_freqs: dict[str, float]):
         for key, pos in layout_.positions.items():
             if key_freqs[key] > self.caps.get(pos, 1.0):
                 return False
         return True
 
-    def is_swap_legal(self, layout_: Layout, key_freqs: Dict[str, float],
-                      swap: Tuple[str, str]):
-        pos = tuple(layout_.positions[key] for key in swap)
-        return (key_freqs[swap[0]] <= self.caps.get(pos[1], 1.0)
-            and key_freqs[swap[1]] <= self.caps.get(pos[0], 1.0))
+    def is_remap_legal(self, layout_: Layout, key_freqs: dict[str, float],
+                       remap: dict[str, str]):
+        for key, dest in remap.items():
+            if key_freqs[key] > self.caps.get(layout_.positions[dest], 1.0):
+                return False
+        return True
     
     def random_legal_swap(self, layout_: Layout, 
-                          key_freqs: Dict[str, float],
-                          pins: Container[str] = tuple()) -> Tuple[str, str]:
+                          key_freqs: dict[str, float],
+                          pins: Container[str] = tuple()):
         destinations = False
         while not destinations:
             first_key = random.choice(
@@ -64,7 +66,7 @@ class Constraintmap:
                     and first_freq < self.caps.get(pos, 1.0) 
                     and key_freqs[key] < first_cap
             ))
-        return (first_key, random.choice(destinations))
+        return remap.swap((first_key, random.choice(destinations)))
 
 def get_constraintmap(name: str) -> Constraintmap:
     if name not in Constraintmap.loaded:

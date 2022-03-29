@@ -19,6 +19,8 @@ from typing import Callable, Iterable
 import constraintmap
 import gui_util
 import layout
+import remap
+from remap import Remap
 import typingtest
 from fingermap import Finger
 from constraintmap import Constraintmap
@@ -664,7 +666,7 @@ def main(stdscr: curses.window):
             False, repr(baseline_layout))
         try:
             while swaps:
-                target_layout.swap((swaps.pop(0), swaps.pop(0)))
+                target_layout.remap((swaps.pop(0), swaps.pop(0)))
         except KeyError as ke:
             message(f"Key '{ke.args[0]}' does not exist "
                     f"in layout {baseline_layout.name}",
@@ -1126,15 +1128,14 @@ def main(stdscr: curses.window):
         
         num_swaps = 0
         optimized = target_layout
-        for optimized, score, swap in steepest_ascent(
+        for optimized, score, remap_ in steepest_ascent(
             target_layout, typingdata_, trigram_freqs, 
             active_constraintmap, pins
         ):
             num_swaps += 1
             repr_ = repr(optimized)
-            message(f"Swap #{num_swaps} ({swap[0]} {swap[1]}) results "
-                f"in avg_ms = {score:.4f}\n"
-                + repr_, win=right_pane)
+            message(f"Edit #{num_swaps}: avg_ms = {score:.4f} ({remap_})"
+                f"\n{repr_}", win=right_pane)
         curses.beep()
         message(f"Local optimum reached", gui_util.green, right_pane)
         
@@ -1235,16 +1236,14 @@ def main(stdscr: curses.window):
             
             num_swaps = 0
             optimized = working_lay
-            for optimized, score, swap in steepest_ascent(
+            for optimized, score, remap_ in steepest_ascent(
                 working_lay, typingdata_, trigram_freqs, active_constraintmap,
                 pins, "-best"
             ):
                 num_swaps += 1
                 repr_ = repr(optimized)
-                message(
-                    f"Swap #{iteration}.{num_swaps} ({swap[0]} {swap[1]})"
-                    f" results in avg_ms = {score:.4f}\n"
-                    + repr_, win=right_pane)
+                message(f"Edit #{iteration}.{num_swaps}: avg_ms = {score:.4f}"
+                    f" ({remap_})\n{repr_}", win=right_pane)
             message(f"Local optimum reached", gui_util.green, right_pane)
             
             if optimized is not working_lay and score < best_score:
@@ -1306,7 +1305,7 @@ def main(stdscr: curses.window):
         
         last_time = -1
         optimized = target_layout
-        for optimized, i, temperature, delta, score, swap in anneal(
+        for optimized, i, temperature, delta, score, remap_ in anneal(
             target_layout, typingdata_, trigram_freqs, active_constraintmap,
             pins, "-annealed", num_iterations
         ):
@@ -1318,8 +1317,8 @@ def main(stdscr: curses.window):
             message(
                 f"{i/num_iterations:.2%} progress, "
                 f"temperature = {temperature:.4f}, delta = {delta:.4f}\n"
-                f"Swapped ({swap[0]} {swap[1]}), avg_ms = {score:.4f}\n"
-                f"" + repr_, win=right_pane)
+                f"avg_ms = {score:.4f}, last edit: {remap_}\n"
+                f"{repr_}", win=right_pane)
         i = 1
         path_ = find_free_filename(f"layouts/{optimized.name}")
         with open(path_, "w") as file:
@@ -2472,60 +2471,46 @@ def steepest_ascent(layout_: layout.Layout, typingdata_: TypingData,
         lfreqs[key] /= total_lfreq
         
     scores = [total_time/total_freq]
+    rows = tuple({pos.row for pos in lay.keys})
+    cols = tuple({pos.col for pos in lay.keys})
+    swaps = tuple(remap.swap(pair) for pair in itertools.combinations(swappable, 2))
     with multiprocessing.Pool(4) as pool:
-        while True:
-            # best_swap = None
-            # best_time = scores[-1]
-            # best_data = (total_freq, known_freq, total_time)
-            # for swap in itertools.combinations(lay.keys.values(), 2):
-            #     data = swapped_score(swap, total_freq, known_freq, total_time)
-            #     swapped_time = data[2]/data[0]
-            #     if swapped_time < best_time:
-            #         best_time = swapped_time
-            #         best_swap = swap
-            #         best_data = data
-            swaps = itertools.combinations(swappable, 2)
-            args = ((swap, total_freq, known_freq, total_time, lay,
-                     trigram_freqs, speed_dict)
-                for swap in swaps if constraintmap_.is_swap_legal(
-                    lay, lfreqs, swap
-                ))
-            datas = pool.starmap(swapped_score, args, 200)
+        while True:            
+            row_swaps = (remap.row_swap(lay, r1, r2, pins) 
+                for r1, r2 in itertools.combinations(rows, 2))
+            col_swaps = (remap.col_swap(lay, c1, c2, pins) 
+                for c1, c2 in itertools.combinations(cols, 2))
+
+            args = (
+                (remap, total_freq, known_freq, total_time, lay,
+                    trigram_freqs, speed_dict)
+                for remap in itertools.chain(swaps, row_swaps, col_swaps)
+                if constraintmap_.is_remap_legal(lay, lfreqs, remap))
+            datas = pool.starmap(remapped_score, args, 200)
             try:
                 best = min(datas, key=lambda d: d[2]/d[0])
             except ValueError:
                 return # no swaps exist
-            best_swap = best[3]
+            best_remap = best[3]
             best_score = best[2]/best[0]
 
             if best_score < scores[-1]:
                 total_freq, known_freq, total_time = best[:3]
                 scores.append(best_score)
-                lay.swap(best_swap)
+                lay.remap(best_remap)
                 
-                yield lay, scores[-1], best_swap
+                yield lay, scores[-1], best_remap
             else:
                 return # no swaps are good
 
-def swapped_score(
-        swap: tuple[str], total_freq, known_freq, total_time,
+def remapped_score(
+        remap_: Remap, total_freq, known_freq, total_time,
         lay: layout.Layout, trigram_freqs: dict, 
         speed_func: typing.Union[Callable, dict]):
     # swaps should be length 2
-    """(total_freq, known_freq, total_time, swap)"""
+    """(total_freq, known_freq, total_time, remap)"""
     
-    def swapped_ngram(ngram: typing.Tuple[str, ...]):
-        swapped = []
-        for key in ngram:
-            if key == swap[0]:
-                swapped.append(swap[1])
-            elif key == swap[1]:
-                swapped.append(swap[0])
-            else:
-                swapped.append(key)
-        return tuple(swapped)
-    
-    for ngram in lay.ngrams_with_any_of(swap):
+    for ngram in lay.ngrams_with_any_of(remap_):
         try:
             tfreq = trigram_freqs[ngram]
         except KeyError: # contains key not in corpus
@@ -2543,7 +2528,7 @@ def swapped_score(
         total_freq -= tfreq
         
         # add effect of swapped tristroke
-        ts = lay.to_nstroke(swapped_ngram(ngram))
+        ts = lay.to_nstroke(remap_.translate(ngram))
         try:
             speed, is_known = speed_func(ts)
         except TypeError:
@@ -2553,22 +2538,17 @@ def swapped_score(
         total_time += speed * tfreq
         total_freq += tfreq
     
-    return (total_freq, known_freq, total_time, swap)
+    return (total_freq, known_freq, total_time, remap_)
 
 def anneal(layout_: layout.Layout, typingdata_: TypingData,
         trigram_freqs: dict, constraintmap_: Constraintmap,
         pins: Iterable[str] = tuple(), suffix: str = "-annealed",
         iterations: int = 10000):
-    """Yields (layout, i, temperature, delta, score, swap) 
-    when a swap is successful."""
+    """Yields (layout, i, temperature, delta, score, remap) 
+    when a remap is successful."""
     lay = layout.Layout(layout_.name, False, repr(layout_))
     if not lay.name.endswith(suffix):
         lay.name += suffix
-    
-    swappable = set(lay.keys.values())
-    for key in pins:
-        swappable.discard(key)
-    swappable = tuple(swappable)
 
     total_freq, known_freq, total_time = layout_speed_raw(
         lay, typingdata_, trigram_freqs
@@ -2589,11 +2569,27 @@ def anneal(layout_: layout.Layout, typingdata_: TypingData,
     Tf = 1e-3
     k = math.log(T0/Tf)
 
+    rows = tuple({pos.row for pos in lay.keys})
+    cols = tuple({pos.col for pos in lay.keys})
+    remap_ = Remap()
+
     random.seed()
     for i in range(iterations):
         temperature = T0*math.exp(-k*i/iterations)
-        swap = constraintmap_.random_legal_swap(lay, lfreqs, pins)
-        data = swapped_score(swap, total_freq, known_freq, total_time,
+        try_rowswap = i % 100 == 0
+        if try_rowswap:
+            remap_ = remap.row_swap(lay, *random.sample(rows, 2), pins)
+        try_colswap = ((not try_rowswap) and i % 10 == 0
+            or try_rowswap and not constraintmap_.is_remap_legal(
+                lay, lfreqs, remap_))
+        if try_colswap:
+            remap_ = remap.col_swap(lay, *random.sample(cols, 2), pins)
+        if (
+                not (try_colswap or try_rowswap) or 
+                (try_colswap or try_rowswap) and not 
+                    constraintmap_.is_remap_legal(lay, lfreqs, remap_)):
+            remap_ = constraintmap_.random_legal_swap(lay, lfreqs, pins)
+        data = remapped_score(remap_, total_freq, known_freq, total_time,
             lay, trigram_freqs, speed_func)
         score = data[2]/data[0]
         delta = score - scores[-1]
@@ -2605,9 +2601,9 @@ def anneal(layout_: layout.Layout, typingdata_: TypingData,
 
         total_freq, known_freq, total_time = data[:3]
         scores.append(score)
-        lay.swap(swap)
+        lay.remap(remap_)
         
-        yield lay, i, temperature, delta, scores[-1], swap
+        yield lay, i, temperature, delta, scores[-1], remap_
     return
     
 if __name__ == "__main__":
