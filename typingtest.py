@@ -29,7 +29,8 @@ def wpm(ms) -> int:
     return int(12000/ms)
 
 def test(win: curses.window, tristroke: nstroke.Tristroke, 
-         user_layout: layout.Layout, csvdata: dict):
+         user_layout: layout.Layout, csvdata: dict,
+         estimate: float = None):
     """Run a typing test with the specified tristroke.
     The new data is saved into csvdata.
 
@@ -43,8 +44,11 @@ def test(win: curses.window, tristroke: nstroke.Tristroke,
     win.addstr(0, 0, "Typing test - Press esc to finish")
 
     height, width = win.getmaxyx()
-    stats_win = win.derwin(13, width, 1, 0)
-    message_win = win.derwin(13, 0)
+    stats_win_height = 13
+    if estimate is not None:
+        stats_win_height += 1
+    stats_win = win.derwin(stats_win_height, width, 1, 0)
+    message_win = win.derwin(stats_win_height, 0)
 
     def message(msg: str, color: int = 0): # mostly for brevity
         gui_util.insert_line_bottom(
@@ -71,6 +75,8 @@ def test(win: curses.window, tristroke: nstroke.Tristroke,
         " ({}, {}, {}): {}".format(
             *fingers, nstroke.tristroke_category(tristroke)))
     stats_win.addstr(10, 0, "mean / stdev / median")
+    if estimate is not None:
+        stats_win.addstr(12, 0, f"Previous estimate: {estimate:.2f} ms")
 
     def format_stats(data: list):
         try:

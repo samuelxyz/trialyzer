@@ -435,25 +435,41 @@ def main(stdscr: curses.window):
             
             tristroke = find_from_best_cat()
             trigram = user_layout.to_ngram(tristroke)
+            targ_tg = analysis_target.to_ngram(tristroke)
             if not tristroke:
                 message("Unable to autosuggest - all compatible trigrams"
                     " between the user layout and analysis target"
                     " already have data", gui_util.red)
                 return
             else:
+                estimate, _ = typingdata_.tristroke_speed_calculator(
+                    analysis_target)(tristroke)
+                # todo: frequency?
                 fingers = tuple(finger.name for finger in tristroke.fingers)
+                freq = trigram_freqs[targ_tg]/sum(trigram_freqs.values())
                 message(f"Autosuggesting trigram {' '.join(trigram)}\n"
                     f"({analysis_target.name} "
-                    f"{' '.join(analysis_target.to_ngram(tristroke))})\n"
-                    "Be sure to use {} {} {}".format(*fingers),
+                    f"{' '.join(analysis_target.to_ngram(tristroke))})\n" +
+                    "Be sure to use {} {} {}".format(*fingers) + 
+                    f"\nFrequency: {freq:.3%}",
                     gui_util.blue)
-        elif len(args) == 3:
-            tristroke = user_layout.to_nstroke(tuple(args))
-        elif len(args) == 1 and len(args[0]) == 3:
-            tristroke = user_layout.to_nstroke(tuple(args[0]))
         else:
-            message("Malformed trigram", gui_util.red)
-            return
+            try:
+                tristroke = user_layout.to_nstroke(tuple(args))
+            except KeyError:
+                try:
+                    tristroke = user_layout.to_nstroke(tuple(args[0]))
+                except KeyError:
+                    message("Malformed trigram", gui_util.red)
+                    return
+            estimate, _ = typingdata_.tristroke_speed_calculator(
+                user_layout)(tristroke)
+            try:
+                freq = trigram_freqs[user_layout.to_ngram(tristroke)]/sum(
+                    trigram_freqs.values())
+                message(f"\nFrequency: {freq:.3%}", gui_util.blue)
+            except KeyError:
+                freq = None
         csvdata = typingdata_.csv_data
         if tristroke in csvdata:
             message(
@@ -461,7 +477,8 @@ def main(stdscr: curses.window):
                 f"{len(csvdata[tristroke][0])} data points",
                 gui_util.blue)
         message("Starting typing test >>>", gui_util.green)
-        typingtest.test(right_pane, tristroke, user_layout, csvdata)
+        typingtest.test(
+            right_pane, tristroke, user_layout, csvdata, estimate)
         input_win.clear()
         typingdata_.save_csv()
         message("Typing data saved", gui_util.green)
