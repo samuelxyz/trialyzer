@@ -14,7 +14,7 @@ import itertools
 import operator
 import statistics
 from collections import defaultdict
-from typing import Callable, Dict, List, Set, Tuple
+from typing import Callable
 
 import layout
 import nstroke
@@ -46,7 +46,7 @@ class TypingData:
         self.csv_filename = csv_filename
         
         # csv_data[tristroke] -> ([speeds_01], [speeds_12])
-        self.csv_data: Dict[Tristroke, Tuple[List, List]]
+        self.csv_data: dict[Tristroke, tuple[list, list]]
         self.csv_data = defaultdict(lambda: ([], []))
 
         try:
@@ -55,25 +55,25 @@ class TypingData:
             pass # just let the data be written upon save
 
         # medians[tristroke] -> (speed_01, speed_12, speed_02)
-        self.tri_medians: Dict[Tristroke, Tuple[float, float, float]] 
+        self.tri_medians: dict[Tristroke, tuple[float, float, float]] 
         self.tri_medians = {}
 
         # exact_tristrokes[layout_name] -> set of tristrokes
-        self.exact_tristrokes: Dict[str, Set[Tristroke]] = {}
+        self.exact_tristrokes: dict[str, set[Tristroke]] = {}
 
         # bicatdata[layout_name][category] -> (speed, num_samples)
-        self.bicatdata: Dict[str, Dict[str, Tuple[float, int]]] = {}
+        self.bicatdata: dict[str, dict[str, tuple[float, int]]] = {}
 
         # tricatdata[layout_name][category] -> (speed, num_samples)
-        self.tricatdata: Dict[str, Dict[str, Tuple[float, int]]] = {}
+        self.tricatdata: dict[str, dict[str, tuple[float, int]]] = {}
 
         # tribreakdowns[layout_name][category][bistroke] 
         #     -> (speed, num_samples)
-        self.tribreakdowns: Dict[str, Dict[str, Dict[str, Tuple(float, int)]]]
+        self.tribreakdowns: dict[str, dict[str, dict[str, tuple(float, int)]]]
         self.tribreakdowns = {}
 
         # speed_funcs[layout_name] -> speed_func(tristroke) -> (speed, exact)
-        self.speed_funcs: Dict[str, Callable[[Tristroke], Tuple[float, bool]]]
+        self.speed_funcs: dict[str, Callable[[Tristroke], tuple[float, bool]]]
         self.speed_funcs = {}
 
     def refresh(self):
@@ -86,7 +86,7 @@ class TypingData:
     def load_csv(self):
         with open(f"data/{self.csv_filename}.csv", "r", 
                 newline="") as csvfile:
-            reader = csv.DictReader(csvfile, restkey="speeds")
+            reader = csv.dictReader(csvfile, restkey="speeds")
             for row in reader:
                 if "speeds" not in row:
                     continue
@@ -112,7 +112,7 @@ class TypingData:
                 if (not self.csv_data[tristroke] 
                         or not self.csv_data[tristroke][0]):
                     continue
-                row: List = self._start_csv_row(tristroke)
+                row: list = self._start_csv_row(tristroke)
                 row.extend(itertools.chain.from_iterable(
                     zip(self.csv_data[tristroke][0], 
                         self.csv_data[tristroke][1])))
@@ -133,8 +133,8 @@ class TypingData:
         if tristroke in self.tri_medians:
             return self.tri_medians[tristroke]
 
-        speeds_01: List[float] = []
-        speeds_12: List[float] = []
+        speeds_01: list[float] = []
+        speeds_12: list[float] = []
         if tristroke in self.csv_data:
             speeds_01.extend(self.csv_data[tristroke][0])
             speeds_12.extend(self.csv_data[tristroke][1])
@@ -144,7 +144,7 @@ class TypingData:
                     if nstroke.compatible(tristroke, csv_tristroke):
                         speeds_01.extend(self.csv_data[csv_tristroke][0])
                         speeds_12.extend(self.csv_data[csv_tristroke][1])
-        speeds_02: List[float] = map(operator.add, speeds_01, speeds_12)
+        speeds_02: list[float] = map(operator.add, speeds_01, speeds_12)
         try:
             data = (
                 statistics.median(speeds_01),
@@ -165,19 +165,7 @@ class TypingData:
         if existing is not None:
             return existing
 
-        if layout_.name in self.exact_tristrokes:
-            return self.exact_tristrokes[layout_.name]
-        else:
-            for other_name in self.exact_tristrokes:
-                try:
-                    other_layout = layout.get_layout(other_name)
-                except OSError: 
-                    # temporary layouts may exist from si command, etc
-                    continue
-                if layout_.has_same_tristrokes(other_layout):
-                    return self.exact_tristrokes[other_name]
-
-        result: Set[Tristroke] = set()
+        result: set[Tristroke] = set()
         for csv_tristroke in self.csv_data:
             for layout_tristroke in layout_.nstrokes_with_fingers(
                     csv_tristroke.fingers):
@@ -191,7 +179,7 @@ class TypingData:
     # May cache this eventually but it's probably not worth
     def amalgamated_bistroke_medians(self, layout_: Layout):
         """Note that the returned dict is a defaultdict."""
-        bi_medians: Dict[Nstroke, float] = defaultdict(list)
+        bi_medians: dict[Nstroke, float] = defaultdict(list)
         for tristroke in self.exact_tristrokes_for_layout(layout_):
             bi0 = (
                 Nstroke(
@@ -227,7 +215,7 @@ class TypingData:
         if existing is not None:
             return existing
 
-        known_medians: Dict[str, List[float]]
+        known_medians: dict[str, list[float]]
         known_medians = defaultdict(list) # cat -> [speeds]
         total = [] # list[median]
         for tristroke in self.exact_tristrokes_for_layout(layout_):
@@ -238,8 +226,8 @@ class TypingData:
                 known_medians[category].append(data)
         
         # now estimate missing data
-        all_medians: Dict[str, List[float]] = {} # cat -> [speeds]
-        is_estimate: Dict[str, bool] = {} # cat -> bool
+        all_medians: dict[str, list[float]] = {} # cat -> [speeds]
+        is_estimate: dict[str, bool] = {} # cat -> bool
         
         all_categories = nstroke.all_bistroke_categories.copy()
 
@@ -305,7 +293,7 @@ class TypingData:
         if existing is not None:
             return existing
 
-        known_medians: Dict[str, List[float]]
+        known_medians: dict[str, list[float]]
         known_medians = defaultdict(list) # cat -> [speeds]
         total = [] # list[speeds]
         for tristroke in self.exact_tristrokes_for_layout(layout_):
@@ -315,8 +303,8 @@ class TypingData:
             known_medians[category].append(data)
             
         # now estimate missing data
-        all_medians: Dict[str, List[float]] = {} # cat -> [speeds]
-        is_estimate: Dict[str, bool] = {} # cat -> bool
+        all_medians: dict[str, list[float]] = {} # cat -> [speeds]
+        is_estimate: dict[str, bool] = {} # cat -> bool
 
         all_categories = nstroke.all_tristroke_categories.copy()
 
@@ -397,7 +385,7 @@ class TypingData:
         if existing is not None:
             return existing
 
-        samples: Dict[str, Dict[Nstroke, List[float]]]
+        samples: dict[str, dict[Nstroke, list[float]]]
         samples = {cat: defaultdict(list) for cat in nstroke.all_tristroke_categories}
         for ts in self.exact_tristrokes_for_layout(layout_): # ts is tristroke
             cat = nstroke.tristroke_category(ts)
@@ -408,7 +396,7 @@ class TypingData:
             for i, b in enumerate(bistrokes):
                 speed = self.tri_medians[ts][i]
                 samples[cat][b].append(speed)
-        result: Dict[str, Dict[str, Tuple(float, int)]] 
+        result: dict[str, dict[str, tuple(float, int)]] 
         result = {cat: dict() for cat in samples}
         for cat in samples:
             for bs in samples[cat]: # bs is bistroke
