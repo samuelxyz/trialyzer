@@ -1,6 +1,8 @@
 from typing import Counter
 from trialyzer import *
 import timeit
+import cProfile
+import corpus
 
 # ok what is the chain here
 # note vscode debugger makes this roughly 10x slower than straight Python
@@ -40,12 +42,12 @@ import timeit
     # tristroke_category: 180 ms to go through a precomputed list of qwerty nstrokes
 
 # csvdata = load_csv_data("default")
-qwerty = layout.get_layout("qwerty")
+# qwerty = layout.get_layout("qwerty")
 # medians = get_medians_for_layout(csvdata, qwerty)
 # tricatdata = tristroke_category_data(medians)
 # data = summary_tristroke_analysis(qwerty, tricatdata, medians)
 n = 3
-keys = ("a", "b", "c")
+# keys = ("a", "b", "c")
 
 def stuff():
     # csvdata = load_csv_data("default")
@@ -56,7 +58,8 @@ def stuff():
     #     summary_tristroke_analysis(lay, tricatdata, medians)
     # set_1 = {nstroke for nstroke in qwerty.nstrokes_with_any_of(keys, n)} # 116
     # set_2 = {nstroke for nstroke in qwerty.by_brute_force(keys, n)} # 235
-    pass
+    corpus.Corpus("tr_quotes.txt") # 706
 
 n_ = 10
-print(timeit.timeit("stuff()", globals=globals(), number=n_)/n_ * 1000)
+# print(timeit.timeit("stuff()", globals=globals(), number=n_)/n_ * 1000)
+cProfile.run("stuff()", sort="tottime")
