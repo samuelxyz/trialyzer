@@ -14,7 +14,7 @@
     # raw: raw text of the corpus, directly from a file
     # processed: a list of 1-grams? may not be necessary
 
-from collections import Counter
+from collections import Counter, defaultdict
 import itertools
 import json
 from typing import Type
@@ -22,7 +22,7 @@ from typing import Type
 Bigram = tuple[str, str]
 Trigram = tuple[str, str, str]
 
-default_lower = """`1234567890-=qwertyuiop[]\asdfghjkl;'zxcvbnm,./"""
+default_lower = """`1234567890-=qwertyuiop[]\\asdfghjkl;'zxcvbnm,./"""
 default_upper = """~!@#$%^&*()_+QWERTYUIOP{}|ASDFGHJKL:"ZXCVBNM<>?"""
 
 def create_replacements(space_key: str, shift_key: str, 
@@ -92,7 +92,7 @@ class Corpus:
                     try:
                         processed.extend(self.replacements[char])
                     except KeyError:
-                        continue
+                        continue # probably \n but could also be special char
                 
                 if self.shift_policy == "once":
                     i = len(processed) - 1
@@ -119,22 +119,21 @@ class Corpus:
             self.trigram_counts.total())
 
     def _json_load(self, json_dict: dict):
-        self.key_counts = eval(json_dict["key_counts"])
+        self.key_counts = Counter(json_dict["key_counts"])
         self.bigram_counts = eval(json_dict["bigram_counts"])
         self.trigram_counts = eval(json_dict["trigram_counts"])
     
-    def json_export(self):
-        obj = {
+    def jsonable_export(self):
+        return {
             "filename": self.filename,
             "space_key": self.space_key,
             "shift_key": self.shift_key,
             "shift_policy": self.shift_policy,
             "special_replacements": self.special_replacements,
-            "key_counts": repr(self.key_counts),
+            "key_counts": self.key_counts,
             "bigram_counts": repr(self.bigram_counts),
             "trigram_counts": repr(self.trigram_counts)
         }
-        return json.dumps(obj)
 
     def _translate(self, other: Type["Corpus"]):
         if self.shift_policy != other.shift_policy:
@@ -167,8 +166,10 @@ class Corpus:
             self.trigram_counts[
                 tuple(conversion.get(ko, ko) for ko in to)] = count
 
-loaded: list[Type["Corpus"]] = [] # All corpuses, including translations
-disk_list: list[Type["Corpus"]] = [] # Should be saved to cache
+# All corpuses, including translations
+loaded: list[Type["Corpus"]] = []
+# Exclude translations
+disk_list: list[Type["Corpus"]] = []
 
 def get_corpus(filename: str, 
                space_key: str = "space",
@@ -177,9 +178,13 @@ def get_corpus(filename: str,
                special_replacements: dict[str, tuple[str,...]] = {},
                precision: int = 500):
     
-    if not loaded:
-        _load_corpus_list(precision)
-        disk_list.extend(loaded)
+    any_loaded = False
+    for c in loaded:
+        if c.filename == filename:
+            any_loaded = True
+            break
+    if not any_loaded:
+        _load_corpus_list(filename, precision)
     
     # find exact match
     for corpus_ in loaded:
@@ -222,29 +227,36 @@ def get_corpus(filename: str,
         special_replacements, precision)
     loaded.append(new_)
     disk_list.append(new_)
-    _save_corpus_list(disk_list)
+    _save_corpus_list(filename)
     return new_
 
-def _load_corpus_list(precision: int = 500):
+def _load_corpus_list(filename: str, precision: int = 500):
     try:
-        with open("corpus/corpus_cache.json") as file:
+        with open(f"corpus/{filename}.json") as file:
             json_list = json.load(file)
     except OSError:
         return
+    result = []
     for c in json_list:
         filename = c["filename"]
         space_key = c["space_key"]
         shift_key = c["shift_key"]
         shift_policy = c["shift_policy"]
         special_replacements = c["special_replacements"]
-        loaded.append(Corpus(
+        result.append(Corpus(
             filename, space_key, shift_key, shift_policy, 
             special_replacements, precision, c
         ))
+    loaded.extend(result)
+    disk_list.extend(result)
 
-def _save_corpus_list(l: list[Type["Corpus"]]):
-    with open("corpus/corpus_cache.json", "w") as file:
-        json.dump([c.json_export() for c in l], file)
+def _save_corpus_list(filename: str):
+    with open(f"corpus/{filename}.json", "w") as file:
+        json.dump(
+            [c.jsonable_export() for c in disk_list 
+                if c.filename == filename],
+            file
+        )
 
 if __name__ == "__main__":
     print("Corpus test")
