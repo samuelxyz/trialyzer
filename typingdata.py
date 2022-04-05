@@ -86,7 +86,7 @@ class TypingData:
     def load_csv(self):
         with open(f"data/{self.csv_filename}.csv", "r", 
                 newline="") as csvfile:
-            reader = csv.dictReader(csvfile, restkey="speeds")
+            reader = csv.DictReader(csvfile, restkey="speeds")
             for row in reader:
                 if "speeds" not in row:
                     continue
