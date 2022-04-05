@@ -58,7 +58,7 @@ def stuff():
     #     summary_tristroke_analysis(lay, tricatdata, medians)
     # set_1 = {nstroke for nstroke in qwerty.nstrokes_with_any_of(keys, n)} # 116
     # set_2 = {nstroke for nstroke in qwerty.by_brute_force(keys, n)} # 235
-    corpus.Corpus("tr_quotes.txt") # 706
+    corpus.get_corpus("shai.txt") # 706
 
 n_ = 10
 # print(timeit.timeit("stuff()", globals=globals(), number=n_)/n_ * 1000)
