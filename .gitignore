@@ -10,3 +10,5 @@ session_settings.json
 todo
 fingermaps/kathy
 .tmp*
+/corpus/shai.txt
+/corpus/*.json
