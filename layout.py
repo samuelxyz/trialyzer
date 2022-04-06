@@ -43,8 +43,8 @@ class Layout:
         first_col = 1
         fingermap_defined = False
         board_defined = False
-        for row in s.split("\n"):
-            tokens = row.split(" ")
+        for row in s.splitlines():
+            tokens = row.split("//", 1)[0].split(" ")
             if tokens[0] == "fingermap:" and len(tokens) >= 2:
                 self.fingermap = fingermap.get_fingermap(tokens[1])
                 fingermap_defined = True

@@ -42,9 +42,10 @@ class Fingermap:
         rows = [] # rows in the string which specify the layout
         first_row = Row.NUMBER
         first_col = 0
-        for row in s.split("\n"):
+        for row in s.splitlines():
             # double spaces matter so not just .split()
-            tokens = row.split(" ")
+            # also, allow comments at end with "//"
+            tokens = row.split("//", 1)[0].split(" ")
             if tokens[0] == "first_pos:" and len(tokens) >= 3:
                 try:
                     first_row = int(tokens[1])

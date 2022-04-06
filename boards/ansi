@@ -2,7 +2,14 @@ NUMBER 0 0.0 4.0 13
 TOP 0 0.5 3.0 13
 HOME 0 0.75 2.0 12
 BOTTOM 0 1.25 1.0 11
-THUMB 0 0.75 0.0 3
-THUMB 4 6.75 0.0
-THUMB 5 9.75 0.0
-THUMB 6 11.25 0.0 8
+THUMB 0 0.5 0.0 1 // ctrl_l, win_l
+THUMB 2 3.0 0.0 // alt_l
+THUMB 3 5.0 0.0 // space_l
+THUMB 4 7.5 0.0 // space_r
+THUMB 5 10 0.0 // alt_r
+THUMB 6 11.5 0.0 8 // win_r, menu, ctrl_r
+
+default_key: BOTTOM 0 shift_l
+default_key: BOTTOM 11 shift_r
+default_key: THUMB 4 space_r
+default_key: THUMB 2 alt_l
