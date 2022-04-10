@@ -10,7 +10,7 @@ I'm also using this project as an opportunity to learn Python. This is my first 
 
 Uses Python packages:
 - `pynput`
-- `curses` (on windows, use `windows-curses`)
+- `windows-curses`, only required on Windows
 
 Usage:
 - Once you have the above packages installed in your environment, use Python to run `trialyzer.py`.
