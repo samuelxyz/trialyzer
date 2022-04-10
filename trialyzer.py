@@ -1145,6 +1145,7 @@ def main(stdscr: curses.window):
         
         num_swaps = 0
         optimized = target_layout
+        pins.extend(target_layout.get_board_keys()[0].values())
         for optimized, score, remap_ in steepest_ascent(
             target_layout, typingdata_, trigram_freqs, 
             active_constraintmap, pins
@@ -1197,6 +1198,7 @@ def main(stdscr: curses.window):
                 return
         else:
             target_layout = analysis_target
+        pins.extend(target_layout.get_board_keys()[0].values())
         pin_positions = {key: target_layout.positions[key] for key in pins}
         try: # load existing best if present
             working_lay = layout.Layout(target_layout.name + "-best", False)
@@ -1312,6 +1314,7 @@ def main(stdscr: curses.window):
         else:
             target_layout = analysis_target
 
+        pins.extend(target_layout.get_board_keys()[0].values())
         message("Annealing... >>>", gui_util.green)
 
         initial_score = layout_speed(

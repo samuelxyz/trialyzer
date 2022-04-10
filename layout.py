@@ -73,6 +73,14 @@ class Layout:
                         self.positions[key]]
                     self.coords[key] = self.board.coords[
                         self.positions[key]]
+        for pos, key in self.board.default_keys.items():
+            if pos not in self.keys and key not in self.positions:
+                self.keys[pos] = key
+                self.positions[key] = pos
+                self.fingers[key] = self.fingermap.fingers[
+                    self.positions[key]]
+                self.coords[key] = self.board.coords[
+                    self.positions[key]]
 
     def calculate_counts(self):
         for other in Layout.loaded.values():
@@ -108,10 +116,12 @@ class Layout:
             + self.board.name +  ")")
 
     def __repr__(self) -> str:
-        first_row = min(pos.row for pos in self.keys)
-        first_col = min(pos.col for pos in self.keys)
-        last_row = max(pos.row for pos in self.keys)
-        last_col = max(pos.col for pos in self.keys)
+        reprkeys = self.get_board_keys()[1]
+
+        first_row = min(pos.row for pos in reprkeys)
+        first_col = min(pos.col for pos in reprkeys)
+        last_row = max(pos.row for pos in reprkeys)
+        last_col = max(pos.col for pos in reprkeys)
         rows = []
         if self.fingermap.name != "traditional":
             rows.append(f"fingermap: {self.fingermap.name}")
@@ -124,11 +134,24 @@ class Layout:
             keys = []
             for col in range(first_col, last_col+1):
                 try:
-                    keys.append(self.keys[fingermap.Pos(row, col)])
+                    keys.append(reprkeys[fingermap.Pos(row, col)])
                 except KeyError:
                     keys.append("")
             rows.append(" ".join(keys))
         return "\n".join(rows)
+
+    def get_board_keys(self):
+        """Returns board_keys, non_board_keys as dicts[pos, key] that 
+        are/are not from the default keys of the board.
+        """
+        board_keys = {}
+        non_board_keys = {}
+        for pos, key in self.keys.items():
+            if (pos, key) in self.board.default_keys.items():
+                board_keys[pos] = key
+            else:
+                non_board_keys[pos] = key
+        return board_keys, non_board_keys
 
     def to_ngram(self, nstroke: Nstroke):
         """Returns None if the Nstroke does not have a corresponding
@@ -196,7 +219,7 @@ class Layout:
         # this method should avoid generating duplicates probably maybe
         options = tuple(key for key in keys if key in self.positions)
         inverse = tuple(key for key in self.positions if key not in options)
-        all = tuple(key for key in self.positions)
+        all = tuple(self.positions)
         for i in range(n):
             by_position = []
             for j in range(n):

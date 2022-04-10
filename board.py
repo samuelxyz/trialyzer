@@ -13,9 +13,9 @@ class Board:
 
     def __init__(self, name: str) -> None:
         self.name = name
-        self.positions = {} # dict[Coord, Pos]
-        self.coords = {} # dict[Pos, Coord]
-        self.default_keys = {} # dict[Pos, str]
+        self.positions = {} # type: dict[Coord, Pos]
+        self.coords = {} # type: dict[Pos, Coord]
+        self.default_keys = {} # type: dict[Pos, str]
         with open("boards/" + name) as file:
             self.build_from_string(file.read())
 
@@ -23,6 +23,8 @@ class Board:
         for row in s.splitlines():
             # allow comments at end with "//"
             tokens = row.split("//", 1)[0].split()
+            if not tokens:
+                continue
             key_specified = (tokens[0] == "default_key:")
             if key_specified:
                 tokens.pop(0)

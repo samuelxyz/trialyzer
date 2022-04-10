@@ -47,8 +47,11 @@ class Constraintmap:
     def is_remap_legal(self, layout_: Layout, key_freqs: dict[str, float],
                        remap: dict[str, str]):
         for key, dest in remap.items():
-            if key_freqs[key] > self.caps.get(layout_.positions[dest], 1.0):
-                return False
+            try:
+                if key_freqs[key] > self.caps.get(layout_.positions[dest], 1.0):
+                    return False
+            except KeyError:
+                continue
         return True
     
     def random_legal_swap(self, layout_: Layout, 

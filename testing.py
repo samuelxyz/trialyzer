@@ -3,6 +3,8 @@ from trialyzer import *
 import timeit
 import cProfile
 import corpus
+import typingdata
+import time
 
 # ok what is the chain here
 # note vscode debugger makes this roughly 10x slower than straight Python
@@ -41,11 +43,10 @@ import corpus
 # nstroke things
     # tristroke_category: 180 ms to go through a precomputed list of qwerty nstrokes
 
-# csvdata = load_csv_data("default")
-# qwerty = layout.get_layout("qwerty")
-# medians = get_medians_for_layout(csvdata, qwerty)
-# tricatdata = tristroke_category_data(medians)
-# data = summary_tristroke_analysis(qwerty, tricatdata, medians)
+qwerty = layout.Layout("qwerty", False)
+typingdata_ = typingdata.TypingData("tanamr")
+corpus_ = corpus.get_corpus("shai.txt", precision=5000)
+constraintmap_ = constraintmap.get_constraintmap("trad-dead-pinkies")
 n = 3
 # keys = ("a", "b", "c")
 
@@ -58,8 +59,13 @@ def stuff():
     #     summary_tristroke_analysis(lay, tricatdata, medians)
     # set_1 = {nstroke for nstroke in qwerty.nstrokes_with_any_of(keys, n)} # 116
     # set_2 = {nstroke for nstroke in qwerty.by_brute_force(keys, n)} # 235
-    corpus.Corpus("tr_quotes.txt")
+    # corpus.Corpus("tr_quotes.txt")
+    for lay, score, swap in steepest_ascent(qwerty, typingdata_, 
+            corpus_.trigram_counts, constraintmap_, 
+            pins=qwerty.get_board_keys()[0].values()):
+        print(f"{swap} gives {score:.3f}")
+        print(repr(lay))
 
-n_ = 10
+# n_ = 1
 # print(timeit.timeit("stuff()", globals=globals(), number=n_)/n_ * 1000)
-cProfile.run("stuff()", sort="tottime")
+# cProfile.run("stuff()", sort="tottime")
