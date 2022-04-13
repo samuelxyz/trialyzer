@@ -33,7 +33,7 @@ def _find_existing_cached(cache, layout_: Layout):
         for other_name in cache:
             try:
                 other_layout = layout.get_layout(other_name)
-            except OSError: 
+            except FileNotFoundError: 
                 # temporary layouts may exist from si command, etc
                 continue
             if layout_.has_same_tristrokes(other_layout):
@@ -42,7 +42,7 @@ def _find_existing_cached(cache, layout_: Layout):
 
 class TypingData:
     def __init__(self, csv_filename: str) -> None:
-        """Raises OSError if data/csv_filename.csv not found."""
+        """Raises FileNotFoundError if data/csv_filename.csv not found."""
         self.csv_filename = csv_filename
         
         # csv_data[tristroke] -> ([speeds_01], [speeds_12])
@@ -51,7 +51,7 @@ class TypingData:
 
         try:
             self.load_csv()
-        except OSError:
+        except FileNotFoundError:
             pass # just let the data be written upon save
 
         # medians[tristroke] -> (speed_01, speed_12, speed_02)

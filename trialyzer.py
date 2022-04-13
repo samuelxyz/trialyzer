@@ -41,12 +41,12 @@ def main(stdscr: curses.window):
         some_default = False
         try:
             analysis_target = layout.get_layout(settings["analysis_target"])
-        except (OSError, KeyError):
+        except (FileNotFoundError, KeyError):
             analysis_target = layout.get_layout("qwerty")
             some_default = True
         try:
             user_layout = layout.get_layout(settings["user_layout"])
-        except (OSError, KeyError):
+        except (FileNotFoundError, KeyError):
             user_layout = layout.get_layout("qwerty")
             some_default = True
         try:
@@ -62,7 +62,7 @@ def main(stdscr: curses.window):
         try:
             active_constraintmap = constraintmap.get_constraintmap(
                 settings["constraintmap"])
-        except (KeyError, OSError):
+        except (KeyError, FileNotFoundError):
             active_constraintmap = constraintmap.get_constraintmap(
                 "traditional-default")
             some_default = True
@@ -70,7 +70,7 @@ def main(stdscr: curses.window):
         if some_default:
             startup_messages.append((
                 "Set some missing/bad settings to default", gui_util.blue))
-    except (OSError, KeyError):
+    except (FileNotFoundError, KeyError):
         active_speeds_file = "default"
         analysis_target = layout.get_layout("qwerty")
         user_layout = layout.get_layout("qwerty")
@@ -511,7 +511,7 @@ def main(stdscr: curses.window):
                 message("Set " + layout_name + " as the analysis target.",
                         gui_util.green)
                 save_session_settings()
-            except OSError:
+            except FileNotFoundError:
                 message(f"/layouts/{layout_name} was not found.", 
                         gui_util.red)
         else:
@@ -523,7 +523,7 @@ def main(stdscr: curses.window):
             try:
                 message("\n"+ layout_name + "\n"
                         + repr(layout.get_layout(layout_name)), win=right_pane)
-            except OSError:
+            except FileNotFoundError:
                 message(f"/layouts/{layout_name} was not found.", 
                         gui_util.red)
         else:
@@ -579,7 +579,7 @@ def main(stdscr: curses.window):
                 message("Set " + layout_name + " as the user layout.",
                         gui_util.green)
                 save_session_settings()
-            except OSError:
+            except FileNotFoundError:
                 message(f"/layouts/{layout_name} was not found.", 
                         gui_util.red)
 
@@ -588,7 +588,7 @@ def main(stdscr: curses.window):
             layout_name = " ".join(args)
             try:
                 target_layout = layout.get_layout(layout_name)
-            except OSError:
+            except FileNotFoundError:
                 message(f"/layouts/{layout_name} was not found.", 
                         gui_util.red)
                 return
@@ -853,7 +853,7 @@ def main(stdscr: curses.window):
             layout_name = " ".join(args)
             try:
                 target_layout = layout.get_layout(layout_name)
-            except OSError:
+            except FileNotFoundError:
                 message(f"/layouts/{layout_name} was not found.", 
                         gui_util.red)
                 return
@@ -1202,7 +1202,7 @@ def main(stdscr: curses.window):
         pin_positions = {key: target_layout.positions[key] for key in pins}
         try: # load existing best if present
             working_lay = layout.Layout(target_layout.name + "-best", False)
-        except OSError:
+        except FileNotFoundError:
             working_lay = layout.Layout(target_layout.name, False)
         for key in pin_positions:
             if pin_positions[key] != working_lay.positions[key]:
@@ -1282,7 +1282,7 @@ def main(stdscr: curses.window):
                 optimized.name)
             analysis_target = layout.get_layout(optimized.name)
             save_session_settings()
-        except OSError: # no improvement found
+        except FileNotFoundError: # no improvement found
             return
 
     def cmd_anneal():
@@ -1383,7 +1383,7 @@ def main(stdscr: curses.window):
             save_session_settings()
             message(f"Set constraintmap to {active_constraintmap.name}",
                 gui_util.green)
-        except OSError:
+        except FileNotFoundError:
             message(f"/constraintmaps/{' '.join(args)} was not found.",
                 gui_util.red)
 
@@ -1797,7 +1797,7 @@ def main(stdscr: curses.window):
                 message(f"\n{layout_name}\n"
                     + repr(layout.get_layout(layout_name)),
                     win=right_pane)
-            except OSError:
+            except FileNotFoundError:
                 message(f"/layouts/{layout_name} was not found.", 
                         gui_util.red)
                 return
@@ -1807,7 +1807,7 @@ def main(stdscr: curses.window):
                 try:
                     layout.Layout.loaded[layout_name] = layout.Layout(
                         layout_name)
-                except OSError:
+                except FileNotFoundError:
                     to_delete.append(layout_name)
             for layout_name in to_delete:
                 del layout.Layout.loaded[layout_name]
@@ -1815,12 +1815,12 @@ def main(stdscr: curses.window):
         nonlocal user_layout
         try:
             user_layout = layout.get_layout(user_layout.name)
-        except OSError:
+        except FileNotFoundError:
             user_layout = layout.get_layout("qwerty")
         nonlocal analysis_target
         try:
             analysis_target = layout.get_layout(analysis_target.name)
-        except OSError:
+        except FileNotFoundError:
             analysis_target = layout.get_layout("qwerty")
 
     def cmd_draw():
@@ -2029,7 +2029,7 @@ def extract_layout_front(tokens: Iterable[str], require_full: bool = False):
         try:
             layout_ = layout.get_layout(" ".join(tokens))
             return layout_, remainder
-        except OSError:
+        except FileNotFoundError:
             if require_full:
                 return None, tokens
             else:

@@ -20,7 +20,7 @@ class Layout:
             repr_: str = "") -> None:
         """Pass in repr_ to build the layout directly from it. Otherwise, 
         the layout will be built from the file at layouts/<name>. Raises
-        OSError if no repr is provided and no file is found."""
+        FileNotFoundError if no repr is provided and no file is found."""
         self.name = name
         self.keys = {} # type: Dict[fingermap.Pos, str]
         self.positions = {} # type: Dict[str, fingermap.Pos]

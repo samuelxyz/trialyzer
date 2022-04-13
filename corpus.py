@@ -234,7 +234,7 @@ def _load_corpus_list(filename: str, precision: int = 500):
     try:
         with open(f"corpus/{filename}.json") as file:
             json_list = json.load(file)
-    except OSError:
+    except FileNotFoundError:
         return
     result = []
     for c in json_list:
