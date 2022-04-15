@@ -84,6 +84,7 @@ def main(stdscr: curses.window):
         active_constraintmap = constraintmap.get_constraintmap(
             "traditional-default")
         corpus_settings = {
+            "filename": "tr_quotes.txt",
             "space_key": "space",
             "shift_key": "shift",
             "shift_policy": "once",
@@ -118,7 +119,12 @@ def main(stdscr: curses.window):
             f"Active speeds file: {active_speeds_file}"
             f" (/data/{active_speeds_file}.csv)",
             f"Generation constraintmap: {active_constraintmap.name}",
-            f"Trigrams used: {precision_text} "
+            f"Corpus: {corpus_settings['filename']}",
+            f"Space key: {corpus_settings['space_key']}",
+            f"Shift key: {corpus_settings['shift_key']}",
+            "Consecutive capital letters: shift "
+                f"{corpus_settings['shift_policy']}",
+            f"Precision: {precision_text} "
                 f"({target_corpus.trigram_completeness:.3%})"
         ]
 
@@ -133,11 +139,11 @@ def main(stdscr: curses.window):
     content_win = stdscr.subwin(1, 0)
 
     height, twidth = content_win.getmaxyx()
-    startup_lines = len(header_text())
+    num_header_lines = math.ceil(len(header_text())/2)
     message_win = content_win.derwin(
-        height-startup_lines-2, int(twidth/3), startup_lines, 0)
+        height-num_header_lines-2, int(twidth/3), num_header_lines, 0)
     right_pane = content_win.derwin(
-        height-startup_lines-2, int(twidth*2/3), startup_lines, 
+        height-num_header_lines-2, int(twidth*2/3), num_header_lines, 
         int(twidth/3))
     for win in (message_win, right_pane):
         win.scrollok(True)
@@ -1351,21 +1357,23 @@ def main(stdscr: curses.window):
         save_session_settings()
 
     def cmd_corpus():
+        if not args:
+            message("\n".join((
+                "Usage: (note the several subcommands)",
+                "corpus <filename> [space_key [shift_key [shift_policy]]]: "
+                    "Set corpus to /corpus/filename and set rules",
+                "corpus space_key [key]: Set space key",
+                "corpus shift_key [key]: Set shift key",
+                "corpus shift_policy <once|each>:"
+                    " Set policy for consecutive capital letters",
+                "corpus precision <n|full>: "
+                    "Set analysis to use the top n trigrams, or all",
+            )), gui_util.red)
+            return
+            
         nonlocal target_corpus
         keys = ("space_key", "shift_key", "shift_policy", "precision")
         if args[0] not in keys:
-            if not args:
-                message("\n".join(
-                    "corpus <filename> [space_key [shift_key [shift_policy]]]: "
-                        "Set corpus to /corpus/filename and set rules",
-                    "corpus space_key [key]: Set space key",
-                    "corpus shift_key [key]: Set shift key",
-                    "corpus shift_policy <once|each>:"
-                        " Set policy for consecutive capital letters",
-                    "corpus precision <n|full>: "
-                        "Set analysis to use the top n trigrams, or all",
-                ), gui_util.red)
-                return
             if not os.path.exists(f"corpus/{args[0]}"):
                 message(f"/corpus/{args[0]} was not found.", gui_util.red)
                 return
@@ -1947,14 +1955,25 @@ def main(stdscr: curses.window):
 
     for item in startup_messages:
         message(*item)
-    
-    while True:
-        for i in range(len(header_text())):
+
+    def print_header():
+        for i in range(num_header_lines):
             content_win.move(i, 0)
             content_win.clrtoeol()
-        content_win.addstr(0, 0, "\n".join(header_text()))
-        content_win.addstr(height-2, 0, "> ")
+        header_text_ = header_text()
+        second_col_start = 3 + max(
+            len(line) for line in header_text_[:num_header_lines])
+        for i in range(num_header_lines):
+            content_win.addstr(i, 0, header_text_[i])
+        for i in range(num_header_lines, len(header_text_)):
+            content_win.addstr(
+                i-num_header_lines, second_col_start, header_text_[i])
+        
         content_win.refresh()
+
+    while True:
+        content_win.addstr(height-2, 0, "> ")
+        print_header()
 
         input_win.clear()
         input_win.refresh()
