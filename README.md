@@ -8,9 +8,9 @@ If you aren't familiar with the concept of alternate keyboard layouts, the short
 
 I'm also using this project as an opportunity to learn Python. This is my first time using Python for anything more substantial than CodingBat, and also my first project in VS Code, so things may be somewhat messy.
 
-Uses Python packages:
+Uses Python 3.10 with the following packages:
 - `pynput`
-- `windows-curses`, only required on Windows
+- `windows-curses` (only needed if you're on Windows)
 
 Usage:
 - Once you have the above packages installed in your environment, use Python to run `trialyzer.py`.
@@ -68,7 +68,7 @@ Of course, this approach comes with some limitations and drawbacks.
 ## Terminology
 
 **Layout**  
-A mapping between key names (`a`, `;`, `LShift`) and key positions (row, column). A fingermap and board are also specified for each layout.  
+A mapping between key names (`a`, `;`, `shift_l`) and key positions (row, column). A fingermap and board are also specified for each layout.  
 Examples: `QWERTY`, `colemak_dh`.
 
 **Fingermap**  
@@ -76,7 +76,7 @@ A mapping between key positions (row, column) and fingers (`LI` for left index, 
 Possible examples: `traditional`, `iso_angle`.
 
 **Board**  
-A mapping between key positions (row, column) and physical locations of the keys (x/y coordinates).  
+A mapping between key positions (row, column) and physical locations of the keys (xy coordinates).  
 Possible examples: `ansi`, `ortho`, `moonlander`. 
 
 **Bigram, trigram, n-gram**  
@@ -87,4 +87,4 @@ A sequence of physical key locations on the board, each associated with the fing
 
 (Note: Different fingermap-board combinations may have some tristrokes in common; for instance, all tristrokes involving the top and home row are identical between `traditional`-`ansi` and `iso_angle`-`iso`. Moreover, though the right hand is in a different position in `iso_angle` versus `iso_angle_wide`, the shape of each tristroke on the right hand is identical. Trialyzer accounts for these commonalities, and allows the relevant typing speed data to be shared between different boards and fingermaps.)
 
-For further information, see the [wiki](https://github.com/samuelxyz/trialyzer/wiki)!
+For much more terminology and detail, see the [wiki](https://github.com/samuelxyz/trialyzer/wiki)!

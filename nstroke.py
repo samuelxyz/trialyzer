@@ -207,6 +207,8 @@ def detect_scissor(nstroke: Nstroke, index0: int = 0, index1: int = 1):
     otherwise."""
     if abs(nstroke.fingers[index0] - nstroke.fingers[index1]) != 1:
         return ""
+    if Finger.LT in nstroke.fingers or Finger.RT in nstroke.fingers:
+        return ""
     vec = map(operator.sub, nstroke.coords[index0], nstroke.coords[index1])
     dist_sq = sum((n**2 for n in vec))
     return ".scissor" if dist_sq >= 4 else ""
