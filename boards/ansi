@@ -11,5 +11,6 @@ THUMB 6 11.5 0.0 8 // win_r, menu, ctrl_r
 
 default_key: BOTTOM 0 shift_l
 default_key: BOTTOM 11 shift_r
+default_key: THUMB 3 space_l
 default_key: THUMB 4 space_r
 default_key: THUMB 2 alt_l

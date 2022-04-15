@@ -7,6 +7,7 @@ import functools
 
 import board
 import fingermap
+import corpus
 from nstroke import (
     all_tristroke_categories, Nstroke, applicable_function, tristroke_category
 )
@@ -29,6 +30,7 @@ class Layout:
         self.counts = {category: 0 for category in all_tristroke_categories}
         self.preprocessors = {} # type: Dict[str, threading.Thread]
         self.nstroke_cache = {} # type: Dict[Tuple[str, ...], Nstroke]
+        self.special_replacements = {} # type: Dict[str, Tuple[str,...]]
         if repr_:
             self.build_from_string(repr_)
         else:
@@ -57,6 +59,8 @@ class Layout:
                 except ValueError:
                     first_row = fingermap.Row[tokens[1]]
                 first_col = int(tokens[2])
+            elif tokens[0] == "special:" and len(tokens) >= 2:
+                self.special_replacements[tokens[0]] = tuple(tokens[1:])
             else:
                 rows.append(tokens)
         if not fingermap_defined:
@@ -82,7 +86,7 @@ class Layout:
                 self.coords[key] = self.board.coords[
                     self.positions[key]]
 
-    def calculate_counts(self):
+    def calculate_category_counts(self):
         for other in Layout.loaded.values():
             if (other is not self and self.has_same_tristrokes(other)):
                 self.preprocessors["counts"] = other.preprocessors["counts"]
@@ -179,13 +183,13 @@ class Layout:
 
         Raises KeyError if a key is not found in the layout.
         """
-        args = (ngram, note, fingers)
         is_pure_ngram = (note == "" and fingers == ...)
         if not overwrite_cache:
             try:
                 if is_pure_ngram:
                     return self.nstroke_cache[ngram]
                 else:
+                    args = (ngram, note, fingers)
                     return self.nstroke_cache[args]
             except KeyError:
                 pass
@@ -198,6 +202,7 @@ class Layout:
         if is_pure_ngram:
             self.nstroke_cache[ngram] = result
         else:
+            args = (ngram, note, fingers)
             self.nstroke_cache[args] = result
         return result
 
@@ -284,14 +289,25 @@ class Layout:
             fing_freqs[finger] /= total_lfreq
         return fing_freqs
 
-    def total_freq(self, trigram_freqs: dict):
+    def total_trigram_count(self, corpus_settings: dict):
         total = 0
-        for trigram, freq in trigram_freqs.items():
+        trigram_counts = self.get_corpus(corpus_settings).trigram_counts
+        for trigram, count in trigram_counts.items():
             for key in trigram:
                 if not key in self.positions:
                     continue
-            total += freq
+            total += count
         return total
+
+    def get_corpus(self, settings: dict):
+        return corpus.get_corpus(
+            settings["filename"],
+            settings["space_key"],
+            settings["shift_key"],
+            settings["shift_policy"],
+            self.special_replacements,
+            settings["precision"]
+        )
 
 def get_layout(name: str) -> Layout:
     if name not in Layout.loaded:
@@ -299,7 +315,7 @@ def get_layout(name: str) -> Layout:
     return Layout.loaded[name]
 
 def _calculate_counts_wrapper(*args: Layout):
-    args[0].calculate_counts()
+    args[0].calculate_category_counts()
 
 # for testing
 if __name__ == "__main__":

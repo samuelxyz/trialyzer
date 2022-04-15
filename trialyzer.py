@@ -24,6 +24,7 @@ from remap import Remap
 import typingtest
 from fingermap import Finger
 from constraintmap import Constraintmap
+from corpus import display_str
 from nstroke import (Nstroke, Tristroke, all_bistroke_categories,
                      all_tristroke_categories, applicable_function,
                      bistroke_category, category_display_names, finger_names,
@@ -55,16 +56,22 @@ def main(stdscr: curses.window):
             active_speeds_file = "default"
             some_default = True
         try:
-            trigram_precision = int(settings["trigram_precision"])
-        except (KeyError, ValueError):
-            trigram_precision = 500
-            some_default = True
-        try:
             active_constraintmap = constraintmap.get_constraintmap(
                 settings["constraintmap"])
         except (KeyError, FileNotFoundError):
             active_constraintmap = constraintmap.get_constraintmap(
                 "traditional-default")
+            some_default = True
+        try:
+            corpus_settings = settings["corpus_settings"]
+        except (KeyError, FileNotFoundError):
+            corpus_settings = {
+                "filename": "tr_quotes.txt",
+                "space_key": "space",
+                "shift_key": "shift",
+                "shift_policy": "once",
+                "precision": 500,
+            }
             some_default = True
         startup_messages.append(("Loaded user settings", gui_util.green))
         if some_default:
@@ -74,29 +81,18 @@ def main(stdscr: curses.window):
         active_speeds_file = "default"
         analysis_target = layout.get_layout("qwerty")
         user_layout = layout.get_layout("qwerty")
-        trigram_precision = 500
         active_constraintmap = constraintmap.get_constraintmap(
             "traditional-default")
+        corpus_settings = {
+            "space_key": "space",
+            "shift_key": "shift",
+            "shift_policy": "once",
+            "precision": 500,
+        }
         startup_messages.append(("Using default user settings", gui_util.red))
 
     typingdata_ = TypingData(active_speeds_file)
-
-    def load_trigrams(trigram_precision: int):
-        with open("data/shai.json") as file:
-            corpus = json.load(file)
-        trigram_list = corpus["toptrigrams"]
-        if trigram_precision <= 0 or trigram_precision >= len(trigram_list):
-            trigram_precision = len(trigram_list)
-        trigram_freqs = dict()
-        included = 0
-        total = 0
-        for i, item in enumerate(trigram_list):
-            if i < trigram_precision:
-                trigram_freqs[tuple(item["Ngram"])] = item["Count"]
-                included += item["Count"]
-            total += item["Count"]
-
-        return trigram_freqs, included/total
+    target_corpus = analysis_target.get_corpus(corpus_settings)
     
     def save_session_settings():
         with open("session_settings.json", "w") as settings_file:
@@ -105,17 +101,16 @@ def main(stdscr: curses.window):
                     "user_layout": user_layout.name,
                     "active_speeds_file": active_speeds_file,
                     "constraintmap": active_constraintmap.name,
-                    "trigram_precision": trigram_precision,
+                    "corpus_settings": corpus_settings,
                 }, settings_file)
-
-    trigram_freqs, trigram_percent = load_trigrams(trigram_precision)
     save_session_settings()
     
     def header_text(): 
-        if trigram_precision:
-            precision_text = f"{trigram_precision} most frequent"
-        else:
-            precision_text = "all"
+        precision_text = (
+            f"all ({len(target_corpus.top_trigrams)})" 
+                if not target_corpus.precision
+                else f"top {target_corpus.precision}"
+        )
         return [
             "\"h\" or \"help\" to show command list",
             f"Analysis target: {analysis_target}",
@@ -123,7 +118,8 @@ def main(stdscr: curses.window):
             f"Active speeds file: {active_speeds_file}"
             f" (/data/{active_speeds_file}.csv)",
             f"Generation constraintmap: {active_constraintmap.name}",
-            f"Trigrams used: {precision_text} ({trigram_percent:.3%})"
+            f"Trigrams used: {precision_text} "
+                f"({target_corpus.trigram_completeness:.3%})"
         ]
 
     curses.curs_set(0)
@@ -391,9 +387,6 @@ def main(stdscr: curses.window):
         if not args: # autosuggest trigram
             # Choose the most frequent trigram from the least completed 
             # category of the analysis target layout
-            with open("data/shai.json") as file:
-                corpus = json.load(file)
-            trigram_list = corpus["toptrigrams"]
             exact_tristrokes = typingdata_.exact_tristrokes_for_layout(
                 analysis_target)
             catdata = typingdata_.tristroke_category_data(analysis_target)
@@ -414,8 +407,8 @@ def main(stdscr: curses.window):
                 if not completion:
                     return None
                 best_cat = min(completion, key = lambda cat: completion[cat])
-                # trigram_list is sorted by descending frequency
-                for entry in trigram_list:
+                # is sorted by descending frequency
+                for entry in target_corpus.all_trigrams:
                     ng = tuple(entry["Ngram"]) # tuple[str]
                     if ng in ruled_out:
                         continue
@@ -436,6 +429,7 @@ def main(stdscr: curses.window):
             tristroke = find_from_best_cat()
             trigram = user_layout.to_ngram(tristroke)
             targ_tg = analysis_target.to_ngram(tristroke)
+            targ_corp = analysis_target.get_corpus(corpus_settings)
             if not tristroke:
                 message("Unable to autosuggest - all compatible trigrams"
                     " between the user layout and analysis target"
@@ -446,7 +440,7 @@ def main(stdscr: curses.window):
                     analysis_target)(tristroke)
                 # todo: frequency?
                 fingers = tuple(finger.name for finger in tristroke.fingers)
-                freq = trigram_freqs[targ_tg]/sum(trigram_freqs.values())
+                freq = targ_corp.trigram_counts[targ_tg]/targ_corp.trigram_counts.total()
                 message(f"Autosuggesting trigram {' '.join(trigram)}\n"
                     f"({analysis_target.name} "
                     f"{' '.join(analysis_target.to_ngram(tristroke))})\n" +
@@ -464,9 +458,10 @@ def main(stdscr: curses.window):
                     return
             estimate, _ = typingdata_.tristroke_speed_calculator(
                 user_layout)(tristroke)
+            user_corp = user_layout.get_corpus(corpus_settings)
             try:
-                freq = trigram_freqs[user_layout.to_ngram(tristroke)]/sum(
-                    trigram_freqs.values())
+                freq = (user_corp.trigram_counts[user_layout.to_ngram(tristroke)]/
+                    user_corp.trigram_counts.total())
                 message(f"\nFrequency: {freq:.3%}", gui_util.blue)
             except KeyError:
                 freq = None
@@ -598,9 +593,9 @@ def main(stdscr: curses.window):
         message_win.refresh()
         
         tri_stats = layout_tristroke_analysis(
-            target_layout, typingdata_, trigram_freqs)
+            target_layout, typingdata_, corpus_settings)
         bi_stats = layout_bistroke_analysis(
-            target_layout, typingdata_)
+            target_layout, typingdata_, corpus_settings)
         
         tri_ms = tri_stats[""][2]
         tri_wpm = int(24000/tri_ms)
@@ -705,18 +700,18 @@ def main(stdscr: curses.window):
             target_layout: layout.Layout, show_all: bool, hint: str):
         
         base_tri_stats = layout_tristroke_analysis(
-            baseline_layout, typingdata_, trigram_freqs)
+            baseline_layout, typingdata_, corpus_settings)
         base_bi_stats = layout_bistroke_analysis(
-            baseline_layout, typingdata_)
+            baseline_layout, typingdata_, corpus_settings)
         base_tri_ms = base_tri_stats[""][2]
         base_tri_wpm = 24000/base_tri_ms
         base_bi_ms = base_bi_stats[""][2]
         base_bi_wpm = 12000/base_bi_ms
 
         tar_tri_stats = layout_tristroke_analysis(
-            target_layout, typingdata_, trigram_freqs)
+            target_layout, typingdata_, corpus_settings)
         tar_bi_stats = layout_bistroke_analysis(
-            target_layout, typingdata_)
+            target_layout, typingdata_, corpus_settings)
         tar_tri_ms = tar_tri_stats[""][2]
         tar_tri_wpm = 24000/tar_tri_ms
         tar_bi_ms = tar_bi_stats[""][2]
@@ -808,8 +803,9 @@ def main(stdscr: curses.window):
             w.writerow(header)
             for i, lay in enumerate(layouts):
                 tridata = layout_tristroke_analysis(lay, typingdata_, 
-                    trigram_freqs)
-                bidata = layout_bistroke_analysis(lay, typingdata_)
+                    corpus_settings)
+                bidata = layout_bistroke_analysis(lay, typingdata_, 
+                    corpus_settings)
                 right_pane.addstr(rownum, 0, 
                     f"Analyzed {i+1}/{len(layouts)} layouts")
                 right_pane.refresh()
@@ -863,7 +859,7 @@ def main(stdscr: curses.window):
         message_win.refresh()
         
         finger_stats = finger_analysis(
-            target_layout, typingdata_, trigram_freqs)
+            target_layout, typingdata_, corpus_settings)
         gui_util.insert_line_bottom("\nHand/finger breakdown for "
             f"{target_layout}", right_pane)
         print_finger_stats({k:v for k, v in finger_stats.items() if v[0]})
@@ -921,7 +917,7 @@ def main(stdscr: curses.window):
 
         # analyze all
         for lay in layouts:
-            data[lay.name] = layout_speed(lay, typingdata_, trigram_freqs)
+            data[lay.name] = layout_speed(lay, typingdata_, corpus_settings)
             row = first_row
             sorted_ = list(sorted(data, key=lambda d: data[d][0]))
             displayed = {sorted_[i]: data[sorted_[i]] 
@@ -1036,7 +1032,7 @@ def main(stdscr: curses.window):
         
         for lay in layouts:
             data[lay.name] = layout_tristroke_analysis(
-                lay, typingdata_, trigram_freqs)
+                lay, typingdata_, corpus_settings)
             row = first_row
             col = 0
             
@@ -1139,7 +1135,7 @@ def main(stdscr: curses.window):
         message("Using steepest ascent... >>>", gui_util.green)
         
         initial_score = layout_speed(
-            target_layout, typingdata_, trigram_freqs)[0]
+            target_layout, typingdata_, corpus_settings)[0]
         message(f"\nInitial layout: avg_ms = {initial_score:.4f}\n"
             + repr(target_layout), win=right_pane)
         
@@ -1147,7 +1143,7 @@ def main(stdscr: curses.window):
         optimized = target_layout
         pins.extend(target_layout.get_board_keys()[0].values())
         for optimized, score, remap_ in steepest_ascent(
-            target_layout, typingdata_, trigram_freqs, 
+            target_layout, typingdata_, corpus_settings, 
             active_constraintmap, pins
         ):
             num_swaps += 1
@@ -1220,7 +1216,7 @@ def main(stdscr: curses.window):
         message("Shuffling & ascending... >>>", gui_util.green)
         
         best_score = layout_speed(
-                working_lay, typingdata_, trigram_freqs)[0]
+                working_lay, typingdata_, corpus_settings)[0]
         message(f"Initial best: avg_ms = {best_score:.4f}\n"
                 + repr(working_lay), win=right_pane)
 
@@ -1248,7 +1244,7 @@ def main(stdscr: curses.window):
                         " too strict?", gui_util.red, right_pane)
                     return
             initial_score = layout_speed(
-                working_lay, typingdata_, trigram_freqs)[0]
+                working_lay, typingdata_, corpus_settings)[0]
             message(f"\nShuffle/Attempt {iteration}\n"
                 f"Initial shuffle: avg_ms = {initial_score:.4f}\n"
                 + repr(working_lay), win=right_pane)
@@ -1256,7 +1252,7 @@ def main(stdscr: curses.window):
             num_swaps = 0
             optimized = working_lay
             for optimized, score, remap_ in steepest_ascent(
-                working_lay, typingdata_, trigram_freqs, active_constraintmap,
+                working_lay, typingdata_, corpus_settings, active_constraintmap,
                 pins, "-best"
             ):
                 num_swaps += 1
@@ -1318,7 +1314,7 @@ def main(stdscr: curses.window):
         message("Annealing... >>>", gui_util.green)
 
         initial_score = layout_speed(
-            target_layout, typingdata_, trigram_freqs)[0]
+            target_layout, typingdata_, corpus_settings)[0]
         message(
             f"Initial score: avg_ms = {initial_score:.4f}\n"
             + repr(target_layout), win=right_pane)
@@ -1326,7 +1322,7 @@ def main(stdscr: curses.window):
         last_time = -1
         optimized = target_layout
         for optimized, i, temperature, delta, score, remap_ in anneal(
-            target_layout, typingdata_, trigram_freqs, active_constraintmap,
+            target_layout, typingdata_, corpus_settings, active_constraintmap,
             pins, "-annealed", num_iterations
         ):
             current_time = time.perf_counter()
@@ -1354,26 +1350,62 @@ def main(stdscr: curses.window):
         analysis_target = layout.get_layout(optimized.name)
         save_session_settings()
 
-    def cmd_precision():
-        nonlocal trigram_freqs
-        nonlocal trigram_precision
-        nonlocal trigram_percent
-        try:
-            trigram_precision = int(args[0])
-        except IndexError:
-            message("Usage: precision <n>\nOr use \"precision full\"",
-                gui_util.red)
-            return
-        except ValueError:
-            if args[0] == "full":
-                trigram_precision = 0
-            else:
-                message("Precision must be an integer", gui_util.red)
+    def cmd_corpus():
+        nonlocal target_corpus
+        keys = ("space_key", "shift_key", "shift_policy", "precision")
+        if args[0] not in keys:
+            if not args:
+                message("\n".join(
+                    "corpus <filename> [space_key [shift_key [shift_policy]]]: "
+                        "Set corpus to /corpus/filename and set rules",
+                    "corpus space_key [key]: Set space key",
+                    "corpus shift_key [key]: Set shift key",
+                    "corpus shift_policy <once|each>:"
+                        " Set policy for consecutive capital letters",
+                    "corpus precision <n|full>: "
+                        "Set analysis to use the top n trigrams, or all",
+                ), gui_util.red)
                 return
-        trigram_freqs, trigram_percent = load_trigrams(trigram_precision)
+            if not os.path.exists(f"corpus/{args[0]}"):
+                message(f"/corpus/{args[0]} was not found.", gui_util.red)
+                return
+            corpus_settings["filename"] = args.pop(0)
+            if len(args) >= 3:
+                if args[2] not in ("once, each"):
+                    message("shift_policy must be \"once\" or \"each\"",
+                        gui_util.red)
+                    return
+            for key, input_ in zip(keys, args[:3]):
+                corpus_settings[key] = input_
+            message("Corpus settings updated", gui_util.green)
+        else:
+            if len(args) < 2:
+                message("Incomplete command", gui_util.red)
+                return
+            if args[0] == "shift_policy" and args[1] not in ("once", "each"):
+                message("shift_policy must be \"once\" or \"each\"",
+                        gui_util.red)
+                return
+            elif args[0] == "precision":
+                try:
+                    args[1] = int(args[1])
+                except ValueError:
+                    if args[1] == "full":
+                        args[1] = 0
+                    else:
+                        message("Precision must be an integer or \"full\"", 
+                            gui_util.red)
+                        return
+            corpus_settings[args[0]] = args[1]
+            if args[0] == "precision":
+                target_corpus.set_precision(args[1])
+                message(f"Set trigram precision to {args[1]} "
+                    f"({target_corpus.trigram_completeness:.3%})", 
+                    gui_util.green)
+            else:
+                message(f"Set {args[0]} to {args[1]}", gui_util.green)
         save_session_settings()
-        message(f"Set trigram precision to {args[0]} ({trigram_percent:.3%})", 
-            gui_util.green)
+        target_corpus = analysis_target.get_corpus(corpus_settings)
 
     def cmd_constraintmap():
         nonlocal active_constraintmap
@@ -1398,16 +1430,22 @@ def main(stdscr: curses.window):
             "------General commands------",
             "h[elp]: Show this list",
             "reload [layout name]: Reload layout(s) from files",
-            "precision <n|full>: "
-                "Set analysis to use the top n trigrams, or all",
             "l[ayout] [layout name]: View layout",
             "list [page]: List all layouts",
             "q[uit]",
-            "----Typing data commands----",
+            "----Data commands----",
             "u[se] <layout name>: Set layout used in typing test",
             "t[ype] [trigram]: Run typing test",
             "c[lear] <trigram>: Erase data for trigram",
             "df [filename]: Set typing data file, or use default",
+            "corpus <filename> [space_key [shift_key [shift_policy]]]: "
+                "Set corpus to /corpus/filename and set rules",
+            "corpus space_key [key]: Set space key",
+            "corpus shift_key [key]: Set shift key",
+            "corpus shift_policy <once|each>:"
+                " Set policy for consecutive capital letters",
+            "corpus precision <n|full>: "
+                "Set analysis to use the top n trigrams, or all",
             "-----Analysis commands-----",
             "target <layout name>: Set analysis target (for other commands)",
             "a[nalyze] [layout name]: Detailed layout analysis",
@@ -1553,7 +1591,7 @@ def main(stdscr: curses.window):
         message("Crunching the numbers >>>", gui_util.green)
 
         stats = trigrams_with_specifications(
-            typingdata_, trigram_freqs, analysis_target, category, 
+            typingdata_, corpus_settings, analysis_target, category, 
             with_fingers, without_fingers
         )
         overall = stats.pop("")
@@ -1587,7 +1625,9 @@ def main(stdscr: curses.window):
             worst_trigrams = worst_trigrams[:rows_each]
             frequent_trigrams = frequent_trigrams[:rows_each]
         visible_trigrams = best_trigrams + worst_trigrams + frequent_trigrams
-        twidth = max(len(" ".join(t)) for t in visible_trigrams)        
+        twidth = max(
+            (len(display_str(t, corpus_settings)) for t in visible_trigrams),
+            default=5)
         stats = {t: s for t, s in stats.items() if t in visible_trigrams}
 
         col_settings = [ # for colors
@@ -1608,7 +1648,7 @@ def main(stdscr: curses.window):
                 right_pane.move(row, 0)
                 right_pane.clrtoeol()
                 right_pane.addstr(
-                    row, 0, f"{' '.join(tg):{twidth}s}   ",
+                    row, 0, f"{display_str(tg, corpus_settings):{twidth}s}   ",
                     0 if stats[tg][3] else gray)
                 right_pane.addstr( # freq
                     row, twidth+2, f"{stats[tg][0]:>7.3%}",
@@ -1685,12 +1725,12 @@ def main(stdscr: curses.window):
             category: str, 
             with_fingers: set[Finger], without_fingers: set[Finger]):
         base_stats = trigrams_with_specifications(
-            typingdata_, trigram_freqs, baseline_layout, category, 
+            typingdata_, corpus_settings, baseline_layout, category, 
             with_fingers, without_fingers
         )
         base_overall = base_stats.pop("")
         tar_stats = trigrams_in_list(
-            base_stats, typingdata_, target_layout, trigram_freqs)
+            base_stats, typingdata_, target_layout, corpus_settings)
         tar_overall = tar_stats.pop("")
 
         # maybe something fancy should be done with any trigrams that
@@ -1743,7 +1783,9 @@ def main(stdscr: curses.window):
             frequent_trigrams = frequent_trigrams[:rows_each]
         visible_trigrams = set(
             best_trigrams + worst_trigrams + frequent_trigrams)
-        twidth = max((len(" ".join(t)) for t in visible_trigrams), default=5)
+        twidth = max(
+            (len(display_str(t, corpus_settings)) for t in visible_trigrams),
+            default=5)
         cat_width = max((len(stats[t][4]) for t in visible_trigrams), 
             default=12)
         stats = {t: s for t, s in stats.items() if t in visible_trigrams}
@@ -1769,7 +1811,7 @@ def main(stdscr: curses.window):
                 right_pane.move(row, 0)
                 right_pane.clrtoeol()
                 right_pane.addstr(
-                    row, 0, f"{' '.join(tg):{twidth}s}   ",
+                    row, 0, f"{display_str(tg, corpus_settings):{twidth}s}   ",
                     0 if stats[tg][3] else gray)
                 right_pane.addstr( # freq
                     row, twidth+2, f"{stats[tg][0]:>7.3%}",
@@ -1849,7 +1891,7 @@ def main(stdscr: curses.window):
             category_name = category_display_name(category)
 
             stats = key_analysis(
-                analysis_target, typingdata_, trigram_freqs)
+                analysis_target, typingdata_, corpus_settings)
             color_stat = {
                 key: (stats[key][category][sorting_col],) for key in stats}
             pairs = gui_util.apply_scales(color_stat, (color_settings,))[0]
@@ -1978,8 +2020,8 @@ def main(stdscr: curses.window):
                 cmd_si()
             elif command in ("anneal",):
                 cmd_anneal()
-            elif command == "precision":
-                cmd_precision()
+            elif command == "corpus":
+                cmd_corpus()
             elif command in ("cm", "constraintmap"):
                 cmd_constraintmap()
             elif command in ("h", "help"):
@@ -2094,50 +2136,56 @@ def data_for_tristroke_category(category: str, layout_: layout.Layout,
 
 def trigrams_in_list(
         trigrams: Iterable, typingdata_: TypingData, layout_: layout.Layout,
-        trigram_freqs: typing.Dict[typing.Tuple[str,...], int]):
+        corpus_settings: dict):
     """Returns dict[trigram_tuple, (freq, avg_ms, ms, is_exact)],
     except for the key \"\" which gives (freq, avg_ms, ms, exact_percent)
     for the entire given list."""
     raw = {"": [0, 0, 0]} # total_freq, total_time, known_freq for list
     speed_calc =  typingdata_.tristroke_speed_calculator(layout_)
+    corpus_ = layout_.get_corpus(corpus_settings)
     for trigram in trigrams:
         try:
-            freq = trigram_freqs[trigram]
+            count = corpus_.trigram_counts[trigram]
             tristroke = layout_.to_nstroke(trigram)
         except KeyError:
             continue
         speed, exact = speed_calc(tristroke)
-        raw[""][0] += freq
-        raw[""][1] += speed*freq
+        raw[""][0] += count
+        raw[""][1] += speed*count
         if exact:
-            raw[""][2] += freq
-        raw[trigram] = [freq, speed*freq, exact]
+            raw[""][2] += count
+        raw[trigram] = [count, speed*count, exact]
     raw[""][2] = raw[""][2]/raw[""][0] if raw[""][0] else 0
     result = dict()
-    total_freq = layout_.total_freq(trigram_freqs)
+    total_count = layout_.total_trigram_count()
     for key in raw:
-        freq = raw[key][0]/total_freq if total_freq else 0
+        freq = raw[key][0]/total_count if total_count else 0
         avg_ms = raw[key][1]/raw[key][0] if raw[key][0] else 0
-        ms = raw[key][1]/total_freq if total_freq else 0
+        ms = raw[key][1]/total_count if total_count else 0
         result[key] = (freq, avg_ms, ms, raw[key][2])
     return result
 
 def trigrams_with_specifications_raw(
-        typingdata_: TypingData, trigram_freqs: dict, 
+        typingdata_: TypingData, corpus_settings: dict, 
         layout_: layout.Layout, category: str,
         with_fingers: set[Finger] = set(Finger), 
         without_fingers: set[Finger] = set()):
-    """Returns dict[trigram_tuple, (total_freq, total_time, is_exact)]"""
+    """Returns total_layout_count and a 
+    dict[trigram_tuple, (count, total_time, is_exact)].
+    In the dict, the \"\" key gives the total 
+    (count, total_time, exact_count) for the entire given category.
+    """
     applicable = applicable_function(category)
-    result = {"": [0, 0, 0]} # total_freq, total_time, known_freq for category
-    total_freq = 0 # for all trigrams
+    result = {"": [0, 0, 0]} # total_count, total_time, known_count for category
+    total_count = 0 # for all trigrams
     speed_calc =  typingdata_.tristroke_speed_calculator(layout_)
-    for trigram, freq in trigram_freqs.items():
+    for trigram, count in layout_.get_corpus(
+            corpus_settings).trigram_counts.items():
         try:
             tristroke = layout_.to_nstroke(trigram)
         except KeyError:
             continue
-        total_freq += freq
+        total_count += count
         if with_fingers.isdisjoint(tristroke.fingers):
             continue
         reject = False
@@ -2151,30 +2199,30 @@ def trigrams_with_specifications_raw(
         if not applicable(cat):
             continue
         speed, exact = speed_calc(tristroke)
-        result[""][0] += freq
-        result[""][1] += speed*freq
+        result[""][0] += count
+        result[""][1] += speed*count
         if exact:
-            result[""][2] += freq
-        result[tuple(trigram)] = [freq, speed*freq, exact]
-    return total_freq, result
+            result[""][2] += count
+        result[tuple(trigram)] = [count, speed*count, exact]
+    return total_count, result
 
 def trigrams_with_specifications(
-        typingdata_: TypingData, trigram_freqs: dict, 
+        typingdata_: TypingData, corpus_settings: dict, 
         layout_: layout.Layout, category: str, 
         with_fingers: set[Finger] = set(Finger), 
         without_fingers: set[Finger] = set()):
     """Returns dict[trigram_tuple, (freq, avg_ms, ms, is_exact)],
     except for the key \"\" which gives (freq, avg_ms, ms, exact_percent)
     for the entire given category."""
-    total_freq, raw = trigrams_with_specifications_raw(
-            typingdata_, trigram_freqs, layout_, category,
+    layout_count, raw = trigrams_with_specifications_raw(
+            typingdata_, corpus_settings, layout_, category,
             with_fingers, without_fingers)
     raw[""][2] = raw[""][2]/raw[""][0] if raw[""][0] else 0
     result = dict()
     for key in raw:
-        freq = raw[key][0]/total_freq if total_freq else 0
+        freq = raw[key][0]/layout_count if layout_count else 0
         avg_ms = raw[key][1]/raw[key][0] if raw[key][0] else 0
-        ms = raw[key][1]/total_freq if total_freq else 0
+        ms = raw[key][1]/layout_count if layout_count else 0
         result[key] = (freq, avg_ms, ms, raw[key][2])
     return result
 
@@ -2208,38 +2256,31 @@ def tristroke_breakdowns(medians: dict):
     return result
 
 def layout_bistroke_analysis(layout_: layout.Layout, typingdata_: TypingData, 
-        bigram_freqs = ...):
+        corpus_settings: dict):
     """Returns dict[category, (freq_prop, known_prop, speed, contribution)]
     
     bicatdata is the output of bistroke_category_data(). That is,
-    dict[category: string, (speed: float, num_samples: int)]
-    
-    bigram_freqs will be loaded from shai if not specified. 
-    (The ability to specify is so you can filter.)"""
+    dict[category: string, (speed: float, num_samples: int)]"""
 
-    with open("data/shai.json") as file:
-        corpus = json.load(file)
-
-    bigram_freqs: typing.Dict[typing.Tuple[str, str], int]
-    bigram_freqs = {tuple(k): v for k, v in corpus["bigrams"].items()}
-    # {category: [total_time, exact_freq, total_freq]}
+    bigram_counts = layout_.get_corpus(corpus_settings).bigram_counts
+    # {category: [total_time, exact_count, total_count]}
     by_category = {category: [0.0,0,0] for category in all_bistroke_categories}
     bi_medians = typingdata_.amalgamated_bistroke_medians(layout_)
     bicatdata = typingdata_.bistroke_category_data(layout_)
-    for bigram in bigram_freqs:
+    for bigram in bigram_counts:
         try:
             bistroke = layout_.to_nstroke(bigram)
         except KeyError: # contains key not in layout
             continue
         cat = bistroke_category(bistroke)
-        freq = bigram_freqs[bigram]
+        count = bigram_counts[bigram]
         if bistroke in bi_medians:
             speed = bi_medians[bistroke]
-            by_category[cat][1] += freq
+            by_category[cat][1] += count
         else:
             speed = bicatdata[cat][0]
-        by_category[cat][0] += speed * freq
-        by_category[cat][2] += freq
+        by_category[cat][0] += speed * count
+        by_category[cat][2] += count
     
     # fill in sum categories
     for cat in all_bistroke_categories:
@@ -2250,24 +2291,24 @@ def layout_bistroke_analysis(layout_: layout.Layout, typingdata_: TypingData,
                     for i in range(3):
                         by_category[cat][i] += by_category[othercat][i]
 
-    total_freq = by_category[""][2]
-    if not total_freq:
-        total_freq = 1
+    total_count = by_category[""][2]
+    if not total_count:
+        total_count = 1
     stats = {}
     for cat in all_bistroke_categories:
-        cat_freq = by_category[cat][2]
-        if not cat_freq:
-            cat_freq = 1
-        freq_prop = by_category[cat][2] / total_freq
-        known_prop = by_category[cat][1] / cat_freq
-        cat_speed = by_category[cat][0] / cat_freq
-        contribution = by_category[cat][0] / total_freq
+        cat_count = by_category[cat][2]
+        if not cat_count:
+            cat_count = 1
+        freq_prop = by_category[cat][2] / total_count
+        known_prop = by_category[cat][1] / cat_count
+        cat_speed = by_category[cat][0] / cat_count
+        contribution = by_category[cat][0] / total_count
         stats[cat] = (freq_prop, known_prop, cat_speed, contribution)
     
     return stats
 
 def layout_tristroke_analysis(layout_: layout.Layout, typingdata_: TypingData,
-    trigram_freqs: dict):
+    corpus_settings: dict):
     """Returns dict[category, (freq_prop, known_prop, speed, contribution)]
     
     tricatdata is the output of tristroke_category_data(). That is,
@@ -2275,21 +2316,22 @@ def layout_tristroke_analysis(layout_: layout.Layout, typingdata_: TypingData,
     
     medians is the output of get_medians_for_layout(). That is, 
     dict[Tristroke, (float, float, float)]"""
-    # {category: [total_time, exact_freq, total_freq]}
+    # {category: [total_time, exact_count, total_count]}
     by_category = {category: [0,0,0] for category in all_tristroke_categories}
     speed_func = typingdata_.tristroke_speed_calculator(layout_)
-    for trigram in trigram_freqs:
+    corpus_ = layout_.get_corpus(corpus_settings)
+    for trigram in corpus_.top_trigrams:
         try:
             ts = layout_.to_nstroke(trigram)
         except KeyError: # contains key not in layout
             continue
         cat = tristroke_category(ts)
-        freq = trigram_freqs[trigram]
+        count = corpus_.trigram_counts[trigram]
         speed, is_exact = speed_func(ts)
         if is_exact:
-            by_category[cat][1] += freq
-        by_category[cat][0] += speed * freq
-        by_category[cat][2] += freq
+            by_category[cat][1] += count
+        by_category[cat][0] += speed * count
+        by_category[cat][2] += count
     
     # fill in sum categories
     for cat in all_tristroke_categories:
@@ -2300,90 +2342,89 @@ def layout_tristroke_analysis(layout_: layout.Layout, typingdata_: TypingData,
                     for i in range(3):
                         by_category[cat][i] += by_category[othercat][i]
 
-    total_freq = by_category[""][2]
-    if not total_freq:
-        total_freq = 1
+    total_count = by_category[""][2]
+    if not total_count:
+        total_count = 1
     stats = {}
     for cat in all_tristroke_categories:
-        cat_freq = by_category[cat][2]
-        if not cat_freq:
-            cat_freq = 1
-        freq_prop = by_category[cat][2] / total_freq
-        known_prop = by_category[cat][1] / cat_freq
-        cat_speed = by_category[cat][0] / cat_freq
-        contribution = by_category[cat][0] / total_freq
+        cat_count = by_category[cat][2]
+        if not cat_count:
+            cat_count = 1
+        freq_prop = by_category[cat][2] / total_count
+        known_prop = by_category[cat][1] / cat_count
+        cat_speed = by_category[cat][0] / cat_count
+        contribution = by_category[cat][0] / total_count
         stats[cat] = (freq_prop, known_prop, cat_speed, contribution)
     
     return stats
 
 def layout_speed(
         layout_: layout.Layout, typingdata_: TypingData,
-        trigram_freqs: dict):
+        corpus_settings: dict):
     """Like tristroke_analysis but instead of breaking down by category, only
     calculates stats for the "total" category.
     
     Returns (speed, known_prop)"""
 
-    total_freq, known_freq, total_time = layout_speed_raw(
-        layout_, typingdata_, trigram_freqs)
+    total_count, known_count, total_time = layout_speed_raw(
+        layout_, typingdata_, corpus_settings)
 
-    return (total_time/total_freq, known_freq/total_freq)
+    return (total_time/total_count, known_count/total_count)
 
 def layout_speed_raw(
-        layout_: layout.Layout, typingdata_: TypingData, trigram_freqs: dict):
-    """Returns (total_freq, known_freq, total_time)"""
-    total_freq = 0
-    known_freq = 0
+        layout_: layout.Layout, typingdata_: TypingData, corpus_settings: dict):
+    """Returns (total_count, known_count, total_time)"""
+    total_count = 0
+    known_count = 0
     total_time = 0
     speed_func = typingdata_.tristroke_speed_calculator(layout_)
-    for trigram in trigram_freqs:
+    corpus_ = layout_.get_corpus(corpus_settings)
+    for trigram in corpus_.top_trigrams:
         try:
             ts = layout_.to_nstroke(trigram)
         except KeyError: # contains key not in layout
             continue
-        freq = trigram_freqs[trigram]
+        count = corpus_.trigram_counts[trigram]
         speed, is_exact = speed_func(ts)
         if is_exact:
-            known_freq += freq
-        total_time += speed * freq
-        total_freq += freq
-    return (total_freq, known_freq, total_time)
+            known_count += count
+        total_time += speed * count
+        total_count += count
+    return (total_count, known_count, total_time)
 
 def finger_analysis(layout_: layout.Layout, typingdata_: TypingData,
-        trigram_freqs: dict):
+        corpus_settings: dict):
     """Returns dict[finger, (freq, exact, avg_ms, ms)]
     
     finger has possible values including anything in Finger.names, 
     finger_names.values(), and hand_names.values()"""
-    # {category: [cat_tfreq, known_tfreq, cat_ttime, lfreq]}
-    with open("data/shai.json") as file:
-        corpdata = json.load(file)
-    letter_freqs = corpdata["letters"]
-    total_lfreq = 0
+    # {category: [cat_tcount, known_tcount, cat_ttime, lcount]}
+    corpus_ = layout_.get_corpus(corpus_settings)
+    letter_counts = corpus_.key_counts
+    total_lcount = 0
     raw_stats = {finger.name: [0,0,0,0] for finger in Finger}
     raw_stats.update({hand_names[hand]: [0,0,0,0] for hand in hand_names})
     raw_stats.update(
         {finger_names[fingcat]: [0,0,0,0] for fingcat in finger_names})
     speed_func = typingdata_.tristroke_speed_calculator(layout_)
     for key in layout_.keys.values():
-        try:
-            total_lfreq += letter_freqs[key]
-        except KeyError:
+        total_lcount += letter_counts[key]
+        if total_lcount == 0:
             continue
         finger = layout_.fingers[key].name
-        raw_stats[finger][3] += letter_freqs[key]
+        raw_stats[finger][3] += letter_counts[key]
         if finger == Finger.UNKNOWN.name:
             continue
-        raw_stats[hand_names[finger[0]]][3] += letter_freqs[key]
-        raw_stats[finger_names[finger[1]]][3] += letter_freqs[key]
-    total_tfreq = 0
-    for trigram in trigram_freqs:
+        raw_stats[hand_names[finger[0]]][3] += letter_counts[key]
+        raw_stats[finger_names[finger[1]]][3] += letter_counts[key]
+    total_tcount = 0
+    for trigram in corpus_.top_trigrams:
         try:
             tristroke: Tristroke = layout_.to_nstroke(trigram)
         except KeyError: # contains key not in layout
             continue
-        tfreq = trigram_freqs[trigram]
-        total_tfreq += tfreq
+        tcount = corpus_.trigram_counts[trigram]
+        total_tcount += tcount
         cats = set()
         for finger in tristroke.fingers:
             cats.add(finger.name)
@@ -2393,22 +2434,22 @@ def finger_analysis(layout_: layout.Layout, typingdata_: TypingData,
         speed, is_exact = speed_func(tristroke)
         for cat in cats:
             if is_exact:
-                raw_stats[cat][1] += tfreq
-            raw_stats[cat][2] += speed * tfreq
-            raw_stats[cat][0] += tfreq
+                raw_stats[cat][1] += tcount
+            raw_stats[cat][2] += speed * tcount
+            raw_stats[cat][0] += tcount
     processed = {}
     for cat in raw_stats:
         processed[cat] = (
-            raw_stats[cat][3]/total_lfreq if total_lfreq else 0,
-            raw_stats[cat][0]/total_tfreq if total_tfreq else 0, 
+            raw_stats[cat][3]/total_lcount if total_lcount else 0,
+            raw_stats[cat][0]/total_tcount if total_tcount else 0, 
             raw_stats[cat][1]/raw_stats[cat][0] if raw_stats[cat][0] else 0,
             raw_stats[cat][2]/raw_stats[cat][0] if raw_stats[cat][0] else 0,
-            raw_stats[cat][2]/total_tfreq if total_tfreq else 0, 
+            raw_stats[cat][2]/total_tcount if total_tcount else 0, 
         )
     return processed
 
 def key_analysis(layout_: layout.Layout, typingdata_: TypingData,
-        trigram_freqs: dict):
+        corpus_settings: dict):
     """Like layout_tristroke_analysis but divided up by key.
     Each key only has data for trigrams that contain that key.
     
@@ -2418,26 +2459,27 @@ def key_analysis(layout_: layout.Layout, typingdata_: TypingData,
     raw = {key: {category: [0,0,0] for category in all_tristroke_categories}
         for key in layout_.keys.values()}
 
-    total_freq = 0
+    total_count = 0
 
     speed_func = typingdata_.tristroke_speed_calculator(layout_)
+    corpus_ = layout_.get_corpus(corpus_settings)
     
-    for trigram in trigram_freqs:
+    for trigram in corpus_.top_trigrams:
         try:
             ts = layout_.to_nstroke(trigram)
         except KeyError: # contains key not in layout
             continue
         cat = tristroke_category(ts)
-        freq = trigram_freqs[trigram]
+        count = corpus_.trigram_counts[trigram]
         speed, is_exact = speed_func(ts)
         for key in set(trigram):
             if is_exact:
-                raw[key][cat][1] += freq
-            raw[key][cat][0] += speed * freq
-            raw[key][cat][2] += freq
-        total_freq += freq
-    if not total_freq:
-            total_freq = 1
+                raw[key][cat][1] += count
+            raw[key][cat][0] += speed * count
+            raw[key][cat][2] += count
+        total_count += count
+    if not total_count:
+            total_count = 1
     stats = {key: dict() for key in raw}
     for key in raw:
         # fill in sum categories
@@ -2450,19 +2492,19 @@ def key_analysis(layout_: layout.Layout, typingdata_: TypingData,
                             raw[key][cat][i] += raw[key][othercat][i]
         # process stats
         for cat in all_tristroke_categories:
-            cat_freq = raw[key][cat][2]
-            if not cat_freq:
-                cat_freq = 1
-            freq_prop = raw[key][cat][2] / total_freq
-            known_prop = raw[key][cat][1] / cat_freq
-            cat_speed = raw[key][cat][0] / cat_freq
-            contribution = raw[key][cat][0] / total_freq
+            cat_count = raw[key][cat][2]
+            if not cat_count:
+                cat_count = 1
+            freq_prop = raw[key][cat][2] / total_count
+            known_prop = raw[key][cat][1] / cat_count
+            cat_speed = raw[key][cat][0] / cat_count
+            contribution = raw[key][cat][0] / total_count
             stats[key][cat] = (freq_prop, known_prop, cat_speed, contribution)
     
     return stats
 
 def steepest_ascent(layout_: layout.Layout, typingdata_: TypingData,
-        trigram_freqs: dict, constraintmap_: Constraintmap, 
+        corpus_settings: dict, constraintmap_: Constraintmap, 
         pins: Iterable[str] = tuple(), suffix: str = "-ascended"):
     """Yields (newlayout, score, swap_made) after each step.
     """
@@ -2475,25 +2517,24 @@ def steepest_ascent(layout_: layout.Layout, typingdata_: TypingData,
     for key in pins:
         swappable.discard(key)
 
-    total_freq, known_freq, total_time = layout_speed_raw(
-        lay, typingdata_, trigram_freqs
+    total_count, known_count, total_time = layout_speed_raw(
+        lay, typingdata_, corpus_settings
     )
 
     speed_func = typingdata_.tristroke_speed_calculator(layout_)
     speed_dict = {ts: speed_func(ts) for ts in lay.all_nstrokes()}
 
-    with open("data/shai.json") as file:
-        corp_data = json.load(file)
-    lfreqs = corp_data["letters"]
-    total_lfreq = sum(lfreqs[key] for key in layout_.positions
+    lfreqs = layout_.get_corpus(corpus_settings).key_counts.copy()
+    total_lcount = sum(lfreqs[key] for key in layout_.positions
         if key in lfreqs)
     for key in lfreqs:
-        lfreqs[key] /= total_lfreq
+        lfreqs[key] /= total_lcount
         
-    scores = [total_time/total_freq]
+    scores = [total_time/total_count]
     rows = tuple({pos.row for pos in lay.keys})
     cols = tuple({pos.col for pos in lay.keys})
     swaps = tuple(remap.swap(pair) for pair in itertools.combinations(swappable, 2))
+    trigram_counts = lay.get_corpus(corpus_settings).trigram_counts
     with multiprocessing.Pool(4) as pool:
         while True:            
             row_swaps = (remap.row_swap(lay, r1, r2, pins) 
@@ -2502,8 +2543,8 @@ def steepest_ascent(layout_: layout.Layout, typingdata_: TypingData,
                 for c1, c2 in itertools.combinations(cols, 2))
 
             args = (
-                (remap, total_freq, known_freq, total_time, lay,
-                    trigram_freqs, speed_dict)
+                (remap, total_count, known_count, total_time, lay,
+                    trigram_counts, speed_dict)
                 for remap in itertools.chain(swaps, row_swaps, col_swaps)
                 if constraintmap_.is_remap_legal(lay, lfreqs, remap))
             datas = pool.starmap(remapped_score, args, 200)
@@ -2515,7 +2556,7 @@ def steepest_ascent(layout_: layout.Layout, typingdata_: TypingData,
             best_score = best[2]/best[0]
 
             if best_score < scores[-1]:
-                total_freq, known_freq, total_time = best[:3]
+                total_count, known_count, total_time = best[:3]
                 scores.append(best_score)
                 lay.remap(best_remap)
                 
@@ -2524,15 +2565,15 @@ def steepest_ascent(layout_: layout.Layout, typingdata_: TypingData,
                 return # no swaps are good
 
 def remapped_score(
-        remap_: Remap, total_freq, known_freq, total_time,
-        lay: layout.Layout, trigram_freqs: dict, 
+        remap_: Remap, total_count, known_count, total_time,
+        lay: layout.Layout, trigram_counts: dict, 
         speed_func: typing.Union[Callable, dict]):
     # swaps should be length 2
-    """(total_freq, known_freq, total_time, remap)"""
+    """(total_count, known_count, total_time, remap)"""
     
     for ngram in lay.ngrams_with_any_of(remap_):
         try:
-            tfreq = trigram_freqs[ngram]
+            tcount = trigram_counts[ngram]
         except KeyError: # contains key not in corpus
             continue
         
@@ -2543,9 +2584,9 @@ def remapped_score(
         except TypeError:
             speed, is_known = speed_func[ts]
         if is_known:
-            known_freq -= tfreq
-        total_time -= speed * tfreq
-        total_freq -= tfreq
+            known_count -= tcount
+        total_time -= speed * tcount
+        total_count -= tcount
         
         # add effect of swapped tristroke
         ts = lay.to_nstroke(remap_.translate(ngram))
@@ -2554,14 +2595,14 @@ def remapped_score(
         except TypeError:
             speed, is_known = speed_func[ts]
         if is_known:
-            known_freq += tfreq
-        total_time += speed * tfreq
-        total_freq += tfreq
+            known_count += tcount
+        total_time += speed * tcount
+        total_count += tcount
     
-    return (total_freq, known_freq, total_time, remap_)
+    return (total_count, known_count, total_time, remap_)
 
 def anneal(layout_: layout.Layout, typingdata_: TypingData,
-        trigram_freqs: dict, constraintmap_: Constraintmap,
+        corpus_settings: dict, constraintmap_: Constraintmap,
         pins: Iterable[str] = tuple(), suffix: str = "-annealed",
         iterations: int = 10000):
     """Yields (layout, i, temperature, delta, score, remap) 
@@ -2570,28 +2611,27 @@ def anneal(layout_: layout.Layout, typingdata_: TypingData,
     if not lay.name.endswith(suffix):
         lay.name += suffix
 
-    total_freq, known_freq, total_time = layout_speed_raw(
-        lay, typingdata_, trigram_freqs
+    total_count, known_count, total_time = layout_speed_raw(
+        lay, typingdata_, corpus_settings
     )
 
     speed_func = typingdata_.tristroke_speed_calculator(layout_)
 
-    with open("data/shai.json") as file:
-        corp_data = json.load(file)
-    lfreqs = corp_data["letters"]
-    total_lfreq = sum(lfreqs[key] for key in layout_.positions
+    corpus_ = lay.get_corpus(corpus_settings)
+    lfreqs = corpus_.key_counts.copy()
+    total_lcount = sum(lfreqs[key] for key in layout_.positions
         if key in lfreqs)
     for key in lfreqs:
-        lfreqs[key] /= total_lfreq
+        lfreqs[key] /= total_lcount
     
-    scores = [total_time/total_freq]
+    scores = [total_time/total_count]
     T0 = 10
     Tf = 1e-3
     k = math.log(T0/Tf)
 
     rows = tuple({pos.row for pos in lay.keys})
     cols = tuple({pos.col for pos in lay.keys})
-    remap_ = Remap()
+    remap_ = Remap() # initialize in case needed for is_remap_legal() below
 
     random.seed()
     for i in range(iterations):
@@ -2609,8 +2649,8 @@ def anneal(layout_: layout.Layout, typingdata_: TypingData,
                 (try_colswap or try_rowswap) and not 
                     constraintmap_.is_remap_legal(lay, lfreqs, remap_)):
             remap_ = constraintmap_.random_legal_swap(lay, lfreqs, pins)
-        data = remapped_score(remap_, total_freq, known_freq, total_time,
-            lay, trigram_freqs, speed_func)
+        data = remapped_score(remap_, total_count, known_count, total_time,
+            lay, corpus_.trigram_counts, speed_func)
         score = data[2]/data[0]
         delta = score - scores[-1]
 
@@ -2619,7 +2659,7 @@ def anneal(layout_: layout.Layout, typingdata_: TypingData,
             if random.random() > p:
                 continue
 
-        total_freq, known_freq, total_time = data[:3]
+        total_count, known_count, total_time = data[:3]
         scores.append(score)
         lay.remap(remap_)
         

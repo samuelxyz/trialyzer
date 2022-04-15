@@ -6,7 +6,7 @@
     # bigram_counts: dict[Bigram, int]
     # trigram_counts: dict[Trigram, int]
     # trigrams_by_freq: list[Trigram] - possibly just use trigram_counts.most_common()
-    # trigram_precision: int
+    # precision: int
     # trigram_completeness: float
     # replacements: dict[str, tuple[str, ...]]
     # special_replacements: dict[str, tuple[str, ...]]
@@ -14,7 +14,7 @@
     # raw: raw text of the corpus, directly from a file
     # processed: a list of 1-grams? may not be necessary
 
-from collections import Counter, defaultdict
+from collections import Counter
 import itertools
 import json
 from typing import Type
@@ -24,6 +24,17 @@ Trigram = tuple[str, str, str]
 
 default_lower = """`1234567890-=qwertyuiop[]\\asdfghjkl;'zxcvbnm,./"""
 default_upper = """~!@#$%^&*()_+QWERTYUIOP{}|ASDFGHJKL:"ZXCVBNM<>?"""
+
+def display_name(key: str, corpus_settings: dict):
+    if key == corpus_settings["space_key"]:
+        return "space"
+    elif key == corpus_settings["shift_key"]:
+        return "shift"
+    else:
+        return key
+
+def display_str(ngram: tuple[str, ...], corpus_settings: dict):
+    return " ".join(display_name(key, corpus_settings) for key in ngram)
 
 def create_replacements(space_key: str, shift_key: str, 
         special_replacements: dict[str, tuple[str,...]]):
@@ -47,6 +58,9 @@ def create_replacements(space_key: str, shift_key: str,
             replacements[char] = (char,)
 
     return replacements
+
+class TranslationError(ValueError):
+    """Attempted to translate two corpuses that are not compatible."""
 
 class Corpus:
 
@@ -73,7 +87,12 @@ class Corpus:
             self._translate(other)
         else:
             self._process()
-        
+        self.precision = precision
+        self.top_trigrams = ()
+        self.trigram_precision_total = 0
+        self.trigram_completeness = 0
+        self.all_trigrams = tuple(
+            item[0] for item in self.trigram_counts.most_common())
         self.set_precision(precision)
 
     def _process(self):
@@ -108,13 +127,17 @@ class Corpus:
                 self.trigram_counts.update(
                     line[i:i+3] for i in range(len(line)-2))
         
-    def set_precision(self, precision: int):
-        self.precision = precision
-        self.trigrams_by_freq = tuple(
-            item[0] for item in 
-                self.trigram_counts.most_common(self.precision))
+    def set_precision(self, precision: int | None):
+        if self.trigram_precision_total and precision == self.precision:
+            return
+        if precision <= 0:
+            self.precision = 0
+            precision = len(self.top_trigrams)
+        else:
+            self.precision = precision
+        self.top_trigrams = self.all_trigrams[:precision]
         self.trigram_precision_total = sum(self.trigram_counts[tg] 
-            for tg in self.trigrams_by_freq)
+            for tg in self.top_trigrams)
         self.trigram_completeness = (self.trigram_precision_total / 
             self.trigram_counts.total())
 
@@ -137,39 +160,36 @@ class Corpus:
 
     def _translate(self, other: Type["Corpus"]):
         if self.shift_policy != other.shift_policy:
-            raise ValueError("Mismatched shifting policies")
+            raise TranslationError("Mismatched shifting policies")
         if bool(self.space_key) != bool(other.space_key):
-            raise ValueError(f"Cannot translate missing space key")
+            raise TranslationError(f"Cannot translate missing space key")
         if bool(self.shift_key) != bool(other.shift_key):
-            raise ValueError(f"Cannot translate missing shift key")
+            raise TranslationError(f"Cannot translate missing shift key")
+        if self.special_replacements != other.special_replacements:
+            raise TranslationError("Cannot translate differing special_replacements")
 
         self.replacements = create_replacements(
             self.space_key, self.shift_key, self.special_replacements
         )
         conversion: dict[str, str] = {}
-        for k, vs in self.replacements.items():
-            vo = other.replacements[k]
-            if vs != vo:
-                if len(vs) != len(vo) or len(vo) > 1:
-                    raise ValueError(f"Cannot translate {vo} to {vs}")
-                else:
-                    conversion[vo] = [vs]
+        conversion[other.space_key] = self.space_key
+        conversion[other.shift_key] = self.shift_key
         self.key_counts = Counter()
-        for ko, count in other.key_counts:
+        for ko, count in other.key_counts.items():
             self.key_counts[conversion.get(ko, ko)] = count
         self.bigram_counts = Counter()
-        for bo, count in other.bigram_counts:
+        for bo, count in other.bigram_counts.items():
             self.bigram_counts[
                 tuple(conversion.get(ko, ko) for ko in bo)] = count
         self.trigram_counts = Counter()
-        for to, count in other.trigram_counts:
+        for to, count in other.trigram_counts.items():
             self.trigram_counts[
                 tuple(conversion.get(ko, ko) for ko in to)] = count
 
 # All corpuses, including translations
-loaded: list[Type["Corpus"]] = []
+loaded = [] # type: list[Corpus]
 # Exclude translations
-disk_list: list[Type["Corpus"]] = []
+disk_list = [] # type: list[Corpus]
 
 def get_corpus(filename: str, 
                space_key: str = "space",
@@ -200,25 +220,11 @@ def get_corpus(filename: str,
     
     # try translation
     for corpus_ in loaded:
-        if (corpus_.filename != filename or 
-                bool(corpus_.space_key) != bool(space_key) or
-                bool(corpus_.shift_key) != bool(shift_key) or
-                corpus_.shift_policy != shift_policy):
-            continue
-        if special_replacements == corpus_.special_replacements:
-            return corpus_
-        replacements = create_replacements(
-            space_key, shift_key, special_replacements)
-        translatable = True
-        for k, v in replacements.items():
-            v2 = corpus_.replacements[k]
-            if len(v) != len(v2) or len(v) > 1 and v != v2:
-                translatable = False
-                break
-        if not translatable:
-            continue
-        new_ = Corpus(filename, space_key, shift_key, special_replacements, 
-            precision, other=corpus_)
+        try:
+            new_ = Corpus(filename, space_key, shift_key, shift_policy, 
+                special_replacements, precision, other=corpus_)
+        except TranslationError:
+            continue # translation unsuccessful
         loaded.append(new_)
         return new_
 
