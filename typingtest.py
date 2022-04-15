@@ -30,7 +30,7 @@ def wpm(ms) -> int:
 
 def test(win: curses.window, tristroke: nstroke.Tristroke, 
          user_layout: layout.Layout, csvdata: dict,
-         estimate: float = None):
+         estimate: float = None, key_aliases: list[set[str]] = ()):
     """Run a typing test with the specified tristroke.
     The new data is saved into csvdata.
 
@@ -41,13 +41,13 @@ def test(win: curses.window, tristroke: nstroke.Tristroke,
     curses.curs_set(0)
 
     win.clear()
-    win.addstr(0, 0, "Typing test - Press esc to finish")
+    win.addstr(1, 0, "Typing test - Press esc to finish")
 
     height, width = win.getmaxyx()
-    stats_win_height = 13
+    stats_win_height = 14
     if estimate is not None:
         stats_win_height += 1
-    stats_win = win.derwin(stats_win_height, width, 1, 0)
+    stats_win = win.derwin(stats_win_height, width, 2, 0)
     message_win = win.derwin(stats_win_height, 0)
 
     def message(msg: str, color: int = 0): # mostly for brevity
@@ -114,7 +114,16 @@ def test(win: curses.window, tristroke: nstroke.Tristroke,
             if str(key_name).startswith("Key."):
                 key_name = str(key_name)[4:]
 
-            if key_name != trigram[next_index]:
+            key_correct = False
+            for set_ in key_aliases:
+                if trigram[next_index] in set_ and key_name in set_:
+                    key_correct = True
+                    break
+
+            if key_name == trigram[next_index]:
+                key_correct = True
+
+            if not key_correct:
                 if key_name == "esc":
                     message("Finishing test", gui_util.green)
                 elif key_name in trigram:
@@ -157,6 +166,9 @@ def test(win: curses.window, tristroke: nstroke.Tristroke,
         stats_win.refresh()
         win.refresh()
         win.move(height-1, 0)
+
+    if not speeds_01 or not speeds_12:
+        del csvdata[tristroke]
 
     win.refresh()
     curses.flushinp()

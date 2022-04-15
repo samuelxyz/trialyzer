@@ -63,8 +63,12 @@ def main(stdscr: curses.window):
                 "traditional-default")
             some_default = True
         try:
+            key_aliases = [set(keys) for keys in settings["key_aliases"]]
+        except KeyError:
+            key_aliases = []
+        try:
             corpus_settings = settings["corpus_settings"]
-        except (KeyError, FileNotFoundError):
+        except KeyError:
             corpus_settings = {
                 "filename": "tr_quotes.txt",
                 "space_key": "space",
@@ -103,6 +107,7 @@ def main(stdscr: curses.window):
                     "active_speeds_file": active_speeds_file,
                     "constraintmap": active_constraintmap.name,
                     "corpus_settings": corpus_settings,
+                    "key_aliases": [tuple(keys) for keys in key_aliases]
                 }, settings_file)
     save_session_settings()
     
@@ -407,23 +412,22 @@ def main(stdscr: curses.window):
 
             ruled_out = {analysis_target.to_ngram(tristroke)
                 for tristroke in exact_tristrokes} # already have data
-            trigram = None
+            user_tg = None
 
             def find_from_best_cat():
                 if not completion:
                     return None
                 best_cat = min(completion, key = lambda cat: completion[cat])
                 # is sorted by descending frequency
-                for entry in target_corpus.all_trigrams:
-                    ng = tuple(entry["Ngram"]) # tuple[str]
-                    if ng in ruled_out:
+                for tg in target_corpus.all_trigrams:
+                    if tg in ruled_out:
                         continue
                     try:
-                        tristroke = analysis_target.to_nstroke(ng)
+                        tristroke = analysis_target.to_nstroke(tg)
                     except KeyError: # contains key not in layout
                         continue
                     if tristroke_category(tristroke) == best_cat:
-                        ruled_out.add(ng)
+                        ruled_out.add(tg)
                         if user_layout.to_ngram(tristroke): # keys exist
                             return tristroke
                 # if we get to this point, 
@@ -433,9 +437,8 @@ def main(stdscr: curses.window):
                 return find_from_best_cat()
             
             tristroke = find_from_best_cat()
-            trigram = user_layout.to_ngram(tristroke)
+            user_tg = user_layout.to_ngram(tristroke)
             targ_tg = analysis_target.to_ngram(tristroke)
-            targ_corp = analysis_target.get_corpus(corpus_settings)
             if not tristroke:
                 message("Unable to autosuggest - all compatible trigrams"
                     " between the user layout and analysis target"
@@ -446,10 +449,75 @@ def main(stdscr: curses.window):
                     analysis_target)(tristroke)
                 # todo: frequency?
                 fingers = tuple(finger.name for finger in tristroke.fingers)
-                freq = targ_corp.trigram_counts[targ_tg]/targ_corp.trigram_counts.total()
-                message(f"Autosuggesting trigram {' '.join(trigram)}\n"
+                freq = (target_corpus.trigram_counts[targ_tg]/
+                    target_corpus.trigram_counts.total())
+                message(f"Autosuggesting trigram "
+                    f"{display_str(user_tg, corpus_settings)}\n"
                     f"({analysis_target.name} "
-                    f"{' '.join(analysis_target.to_ngram(tristroke))})\n" +
+                    f"{display_str(targ_tg, corpus_settings)})\n" +
+                    "Be sure to use {} {} {}".format(*fingers) + 
+                    f"\nFrequency: {freq:.3%}",
+                    gui_util.blue)
+        elif args[0] == "cat":
+            args.pop(0)
+            with_fingers = set()
+            without_fingers = set()
+            try:
+                for i in reversed(range(len(args))):
+                    if args[i] == "with":
+                        for _ in range(len(args)-i-1):
+                            with_fingers.add(Finger[args.pop()])
+                        args.pop() # remove "with"
+                    elif args[i] == "without":
+                        for _ in range(len(args)-i-1):
+                            without_fingers.add(Finger[args.pop()])
+                        args.pop() # remove "without"
+            except KeyError:
+                message("Usage:\n"
+                    "t[ype] cat [category] [with <fingers>] [without <fingers>]",
+                    gui_util.red)
+                return
+            if not with_fingers:
+                with_fingers = set(Finger)
+            with_fingers -= without_fingers
+            if not args:
+                category = ""
+            else:
+                category = parse_category(args[0])
+            exact_tristrokes = typingdata_.exact_tristrokes_for_layout(
+                analysis_target)
+            targ_tg = None
+            for tg in target_corpus.all_trigrams:
+                ts = analysis_target.to_nstroke(tg)
+                if tristroke_category(ts) != category or ts in exact_tristrokes:
+                    continue
+                if with_fingers.isdisjoint(ts.fingers):
+                    continue
+                reject = False
+                for finger in ts.fingers:
+                    if finger in without_fingers:
+                        reject = True
+                        break
+                if reject:
+                    continue
+                targ_tg = tg
+                user_tg = user_layout.to_ngram(ts)
+                tristroke = ts
+                break
+            if targ_tg is None:
+                message("Unable to autosuggest - all trigrams"
+                    " matching these specs already have data", gui_util.red)
+                return
+            else:
+                estimate, _ = typingdata_.tristroke_speed_calculator(
+                    analysis_target)(tristroke)
+                fingers = tuple(finger.name for finger in tristroke.fingers)
+                freq = (target_corpus.trigram_counts[targ_tg]/
+                    target_corpus.trigram_counts.total())
+                message(f"Autosuggesting trigram "
+                    f"{display_str(user_tg, corpus_settings)}\n"
+                    f"({analysis_target.name} "
+                    f"{display_str(targ_tg, corpus_settings)})\n" +
                     "Be sure to use {} {} {}".format(*fingers) + 
                     f"\nFrequency: {freq:.3%}",
                     gui_util.blue)
@@ -466,7 +534,8 @@ def main(stdscr: curses.window):
                 user_layout)(tristroke)
             user_corp = user_layout.get_corpus(corpus_settings)
             try:
-                freq = (user_corp.trigram_counts[user_layout.to_ngram(tristroke)]/
+                freq = (
+                    user_corp.trigram_counts[user_layout.to_ngram(tristroke)]/
                     user_corp.trigram_counts.total())
                 message(f"\nFrequency: {freq:.3%}", gui_util.blue)
             except KeyError:
@@ -479,7 +548,7 @@ def main(stdscr: curses.window):
                 gui_util.blue)
         message("Starting typing test >>>", gui_util.green)
         typingtest.test(
-            right_pane, tristroke, user_layout, csvdata, estimate)
+            right_pane, tristroke, user_layout, csvdata, estimate, key_aliases)
         input_win.clear()
         typingdata_.save_csv()
         message("Typing data saved", gui_util.green)
@@ -501,7 +570,8 @@ def main(stdscr: curses.window):
             num_deleted = 0
         typingdata_.save_csv()
         typingdata_.refresh()
-        message(f"Deleted {num_deleted} data points for {' '.join(trigram)}")
+        message(f"Deleted {num_deleted} data points for "
+            f"{display_str(trigram, corpus_settings)}")
 
     def cmd_target():
         layout_name = " ".join(args)
@@ -584,6 +654,50 @@ def main(stdscr: curses.window):
                 message(f"/layouts/{layout_name} was not found.", 
                         gui_util.red)
 
+    def cmd_alias():
+        remove = False
+        if not args:
+            message("Usage:\n" + "\n".join((
+                "alias <key1> <key2> [key3, ...]: "
+                    "Set equivalent keys in typing test",
+                "alias list: Show existing aliases",
+                "alias remove <key1> <key2> [key3, ...]: Remove alias",
+            )), gui_util.red)
+            return
+        elif args[0] == "list":
+            if key_aliases:
+                message("Existing aliases:", gui_util.blue)
+                for keys in key_aliases:
+                    message(" <-> ".join(keys), gui_util.blue)
+            else:
+                message("No existing aliases", gui_util.blue)
+            return
+        elif args[0] == "remove":
+            remove = True
+            args.pop(0)
+        
+        if len(args) < 2:
+            message("At least two keys must be specified", gui_util.red)
+            return
+
+        keys = set(args)
+        if remove:
+            try:
+                key_aliases.remove(keys)
+                message("Removed alias", gui_util.green)
+            except ValueError:
+                message("That alias wasn't there anyway", gui_util.green)
+                return
+        else:
+            if keys not in key_aliases:
+                key_aliases.append(keys)
+                message("Added alias", gui_util.green)
+            else:
+                message("That alias already exists", gui_util.green)
+                return
+
+        save_session_settings()
+    
     def cmd_analyze(show_all: bool = False):
         if args:
             layout_name = " ".join(args)
@@ -1443,7 +1557,12 @@ def main(stdscr: curses.window):
             "q[uit]",
             "----Data commands----",
             "u[se] <layout name>: Set layout used in typing test",
+            "alias <key1> <key2> [key3, ...]: Set equivalent keys in typing test",
+            "alias list: Show existing aliases",
+            "alias remove <key1> <key2> [key3, ...]: Remove alias",
             "t[ype] [trigram]: Run typing test",
+            "t[ype] cat [category] [with <fingers>] [without <fingers>]:"
+                "Run typing test with trigram of a certain type",
             "c[lear] <trigram>: Erase data for trigram",
             "df [filename]: Set typing data file, or use default",
             "corpus <filename> [space_key [shift_key [shift_policy]]]: "
@@ -2055,6 +2174,8 @@ def main(stdscr: curses.window):
                 cmd_reload()
             elif command == "draw":
                 cmd_draw()
+            elif command == "alias":
+                cmd_alias()
             # Debug commands
             elif command == "debug":
                 cmd_debug()
