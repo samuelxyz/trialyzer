@@ -27,13 +27,13 @@ Features:
 - Draw layout heatmaps using a large variety of different statistics
 - Custom layouts, fingermaps, and even physical board definitions can be added in files
 - Layout optimization by simulated annealing and steepest ascent, with key pinning
+- Load arbitrary corpora with rules for shift and space
 
 Planned:
 - Further generation/optimization tools including swap suggestions, interactive layout editor, etc
 - More fingermaps, boards, layouts
 - Alt fingering and sliding
-- Shift layers, dynamic/repeat keys
-- Load arbitrary corpora with specified rules (shift and repeat keys, which thumb is used for space, etc)
+- Custom shift mappings, dynamic/repeat keys
 
 ## What makes trialyzer special?
 

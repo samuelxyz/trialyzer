@@ -24,7 +24,7 @@ from remap import Remap
 import typingtest
 from fingermap import Finger
 from constraintmap import Constraintmap
-from corpus import display_str
+from corpus import display_str, display_name, undisplay_name
 from nstroke import (Nstroke, Tristroke, all_bistroke_categories,
                      all_tristroke_categories, applicable_function,
                      bistroke_category, category_display_names, finger_names,
@@ -462,6 +462,7 @@ def main(stdscr: curses.window):
             args.pop(0)
             with_fingers = set()
             without_fingers = set()
+            desired_keys = set()
             try:
                 for i in reversed(range(len(args))):
                     if args[i] == "with":
@@ -472,9 +473,17 @@ def main(stdscr: curses.window):
                         for _ in range(len(args)-i-1):
                             without_fingers.add(Finger[args.pop()])
                         args.pop() # remove "without"
+                    elif args[i] == "keys":
+                        for _ in range(len(args)-i-1):
+                            key = args.pop()
+                            desired_keys.add(key)
+                            desired_keys.add(display_name(key, corpus_settings))
+                            desired_keys.add(undisplay_name(key, corpus_settings))
+                        args.pop() # remove "keys"
             except KeyError:
                 message("Usage:\n"
-                    "t[ype] cat [category] [with <fingers>] [without <fingers>]",
+                    "t[ype] cat [category] [with <fingers>] [without <fingers>] "
+                        "[keys <keys>]",
                     gui_util.red)
                 return
             if not with_fingers:
@@ -487,9 +496,15 @@ def main(stdscr: curses.window):
             exact_tristrokes = typingdata_.exact_tristrokes_for_layout(
                 analysis_target)
             targ_tg = None
+            applicable = applicable_function(category)
             for tg in target_corpus.all_trigrams:
-                ts = analysis_target.to_nstroke(tg)
-                if tristroke_category(ts) != category or ts in exact_tristrokes:
+                if desired_keys and desired_keys.isdisjoint(tg):
+                    continue
+                try:
+                    ts = analysis_target.to_nstroke(tg)
+                except KeyError:
+                    continue
+                if not applicable(tristroke_category(ts)) or ts in exact_tristrokes:
                     continue
                 if with_fingers.isdisjoint(ts.fingers):
                     continue
@@ -1561,8 +1576,8 @@ def main(stdscr: curses.window):
             "alias list: Show existing aliases",
             "alias remove <key1> <key2> [key3, ...]: Remove alias",
             "t[ype] [trigram]: Run typing test",
-            "t[ype] cat [category] [with <fingers>] [without <fingers>]:"
-                "Run typing test with trigram of a certain type",
+            "t[ype] cat [category] [with <fingers>] [without <fingers>]"
+                " [keys <keys>]: Run typing test with trigram of a certain type",
             "c[lear] <trigram>: Erase data for trigram",
             "df [filename]: Set typing data file, or use default",
             "corpus <filename> [space_key [shift_key [shift_policy]]]: "

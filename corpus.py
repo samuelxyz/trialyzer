@@ -36,6 +36,14 @@ def display_name(key: str, corpus_settings: dict):
 def display_str(ngram: tuple[str, ...], corpus_settings: dict):
     return " ".join(display_name(key, corpus_settings) for key in ngram)
 
+def undisplay_name(key: str, corpus_settings: dict):
+    if key == "space":
+        return corpus_settings["space_key"]
+    elif key == "shift":
+        return corpus_settings["shift_key"]
+    else:
+        return key
+
 def create_replacements(space_key: str, shift_key: str, 
         special_replacements: dict[str, tuple[str,...]]):
     if space_key:

@@ -44,10 +44,10 @@ import time
     # tristroke_category: 180 ms to go through a precomputed list of qwerty nstrokes
 
 qwerty = layout.Layout("qwerty", False)
-typingdata_ = typingdata.TypingData("tanamr")
-corpus_ = corpus.get_corpus("shai.txt", precision=5000)
-constraintmap_ = constraintmap.get_constraintmap("trad-dead-pinkies")
-n = 3
+# typingdata_ = typingdata.TypingData("tanamr")
+# corpus_ = corpus.get_corpus("shai.txt", precision=5000)
+# constraintmap_ = constraintmap.get_constraintmap("trad-dead-pinkies")
+# n = 3
 # keys = ("a", "b", "c")
 
 def stuff():
@@ -60,12 +60,13 @@ def stuff():
     # set_1 = {nstroke for nstroke in qwerty.nstrokes_with_any_of(keys, n)} # 116
     # set_2 = {nstroke for nstroke in qwerty.by_brute_force(keys, n)} # 235
     # corpus.Corpus("tr_quotes.txt")
-    for lay, score, swap in steepest_ascent(qwerty, typingdata_, 
-            corpus_.trigram_counts, constraintmap_, 
-            pins=qwerty.get_board_keys()[0].values()):
-        print(f"{swap} gives {score:.3f}")
-        print(repr(lay))
+    # for lay, score, swap in steepest_ascent(qwerty, typingdata_, 
+    #         corpus_.trigram_counts, constraintmap_, 
+    #         pins=qwerty.get_board_keys()[0].values()):
+    #     print(f"{swap} gives {score:.3f}")
+    #     print(repr(lay))
+    corpus_ = corpus.get_corpus("shai.txt", space_key="space_r")
 
 # n_ = 1
 # print(timeit.timeit("stuff()", globals=globals(), number=n_)/n_ * 1000)
-# cProfile.run("stuff()", sort="tottime")
+cProfile.run("corpus.get_corpus('shai.txt', space_key='space_r')", sort="tottime")
