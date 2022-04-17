@@ -3,12 +3,13 @@ import time
 import queue
 import statistics
 import curses
-from typing import Iterable
+from typing import Collection
 from pynput import keyboard
 
 import nstroke
 import layout
 import gui_util
+from corpus import default_lower, default_upper
 
 key_events = queue.Queue()
 
@@ -28,9 +29,12 @@ def wpm(ms) -> int:
     """
     return int(12000/ms)
 
+shift_aliases = set(
+    frozenset(pair) for pair in zip(default_lower, default_upper))
+
 def test(win: curses.window, tristroke: nstroke.Tristroke, 
          user_layout: layout.Layout, csvdata: dict,
-         estimate: float = None, key_aliases: list[set[str]] = ()):
+         estimate: float = None, key_aliases: Collection[frozenset[str]] = ()):
     """Run a typing test with the specified tristroke.
     The new data is saved into csvdata.
 
@@ -59,6 +63,13 @@ def test(win: curses.window, tristroke: nstroke.Tristroke,
     if not trigram:
         message("User layout does not have a trigram for the specified "
             "tristroke\nExiting!", gui_util.red)
+    
+    valid_keys = set(trigram)
+    all_aliases = shift_aliases.union(key_aliases)
+    for key in trigram:
+        for set_ in all_aliases:
+            if key in set_:
+                valid_keys.update(set_)
 
     fingers = tuple(f.name for f in tristroke.fingers)
 
@@ -115,7 +126,7 @@ def test(win: curses.window, tristroke: nstroke.Tristroke,
                 key_name = str(key_name)[4:]
 
             key_correct = False
-            for set_ in key_aliases:
+            for set_ in all_aliases:
                 if trigram[next_index] in set_ and key_name in set_:
                     key_correct = True
                     break
@@ -126,7 +137,7 @@ def test(win: curses.window, tristroke: nstroke.Tristroke,
             if not key_correct:
                 if key_name == "esc":
                     message("Finishing test", gui_util.green)
-                elif key_name in trigram:
+                elif key_name in valid_keys:
                     message("Key " + key_name + 
                                 " out of sequence, trigram invalidated",
                             gui_util.red)

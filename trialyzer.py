@@ -63,9 +63,9 @@ def main(stdscr: curses.window):
                 "traditional-default")
             some_default = True
         try:
-            key_aliases = [set(keys) for keys in settings["key_aliases"]]
+            key_aliases = set(frozenset(keys) for keys in settings["key_aliases"])
         except KeyError:
-            key_aliases = []
+            key_aliases = set()
         try:
             corpus_settings = settings["corpus_settings"]
         except KeyError:
@@ -578,7 +578,16 @@ def main(stdscr: curses.window):
             message("Usage: c[lear] <trigram>", gui_util.red)
             return
         csvdata = typingdata_.csv_data
-        tristroke = user_layout.to_nstroke(trigram)
+        try:
+            tristroke = user_layout.to_nstroke(trigram)
+        except KeyError:
+            try:
+                tristroke = user_layout.to_nstroke(tuple(
+                    undisplay_name(key) for key in trigram))
+            except KeyError:
+                message("That trigram does not exist in the user layout",
+                    gui_util.red)
+                return
         try:
             num_deleted = len(csvdata.pop(tristroke)[0])
         except KeyError:
@@ -695,7 +704,7 @@ def main(stdscr: curses.window):
             message("At least two keys must be specified", gui_util.red)
             return
 
-        keys = set(args)
+        keys = frozenset(args)
         if remove:
             try:
                 key_aliases.remove(keys)
@@ -705,7 +714,7 @@ def main(stdscr: curses.window):
                 return
         else:
             if keys not in key_aliases:
-                key_aliases.append(keys)
+                key_aliases.add(keys)
                 message("Added alias", gui_util.green)
             else:
                 message("That alias already exists", gui_util.green)
@@ -2055,7 +2064,7 @@ def main(stdscr: curses.window):
         first_col = 0
         origin_row = first_row - max_y*y_scale
         origin_col = first_col - min_x*x_scale
-        for key in coords:
+        for key in sorted(coords, key=lambda c: coords[c][0]):
             try:
                 right_pane.addstr(
                     int(origin_row + y_scale*coords[key].y), 
@@ -2097,6 +2106,7 @@ def main(stdscr: curses.window):
         header_text_ = header_text()
         second_col_start = 3 + max(
             len(line) for line in header_text_[:num_header_lines])
+        second_col_start = max(second_col_start, int(twidth/3))
         for i in range(num_header_lines):
             content_win.addstr(i, 0, header_text_[i])
         for i in range(num_header_lines, len(header_text_)):
