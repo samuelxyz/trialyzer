@@ -2322,7 +2322,7 @@ def trigrams_in_list(
         raw[trigram] = [count, speed*count, exact]
     raw[""][2] = raw[""][2]/raw[""][0] if raw[""][0] else 0
     result = dict()
-    total_count = layout_.total_trigram_count()
+    total_count = layout_.total_trigram_count(corpus_settings)
     for key in raw:
         freq = raw[key][0]/total_count if total_count else 0
         avg_ms = raw[key][1]/raw[key][0] if raw[key][0] else 0
