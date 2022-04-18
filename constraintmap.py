@@ -40,15 +40,18 @@ class Constraintmap:
 
     def is_layout_legal(self, layout_: Layout, key_freqs: dict[str, float]):
         for key, pos in layout_.positions.items():
-            if key_freqs[key] > self.caps.get(pos, 1.0):
-                return False
+            try:
+                if key_freqs[key] > self.caps[pos]:
+                    return False
+            except KeyError:
+                continue
         return True
 
     def is_remap_legal(self, layout_: Layout, key_freqs: dict[str, float],
                        remap: dict[str, str]):
         for key, dest in remap.items():
             try:
-                if key_freqs[key] > self.caps.get(layout_.positions[dest], 1.0):
+                if key_freqs[key] > self.caps[layout_.positions[dest]]:
                     return False
             except KeyError:
                 continue

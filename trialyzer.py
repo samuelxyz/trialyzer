@@ -14,7 +14,7 @@ import random
 import statistics
 import time
 import typing
-from typing import Callable, Iterable
+from typing import Callable, Collection, Iterable
 
 import constraintmap
 import gui_util
@@ -1526,8 +1526,7 @@ def main(stdscr: curses.window):
             message("Corpus settings updated", gui_util.green)
         else:
             if len(args) < 2:
-                message("Incomplete command", gui_util.red)
-                return
+                args.append("") # user wants to set key to the empty string
             if args[0] == "shift_policy" and args[1] not in ("once", "each"):
                 message("shift_policy must be \"once\" or \"each\"",
                         gui_util.red)
@@ -1549,7 +1548,8 @@ def main(stdscr: curses.window):
                     f"({target_corpus.trigram_completeness:.3%})", 
                     gui_util.green)
             else:
-                message(f"Set {args[0]} to {args[1]}", gui_util.green)
+                message(f"Set {args[0]} to {args[1] if args[1] else 'None'}",
+                    gui_util.green)
         save_session_settings()
         target_corpus = analysis_target.get_corpus(corpus_settings)
 
@@ -2694,6 +2694,9 @@ def steepest_ascent(layout_: layout.Layout, typingdata_: TypingData,
         if key in lfreqs)
     for key in lfreqs:
         lfreqs[key] /= total_lcount
+
+    unused_keys = set(key for key in lay.positions 
+        if key not in lfreqs or not bool(lfreqs[key]))
         
     scores = [total_time/total_count]
     rows = tuple({pos.row for pos in lay.keys})
@@ -2709,7 +2712,7 @@ def steepest_ascent(layout_: layout.Layout, typingdata_: TypingData,
 
             args = (
                 (remap, total_count, known_count, total_time, lay,
-                    trigram_counts, speed_dict)
+                    trigram_counts, speed_dict, unused_keys)
                 for remap in itertools.chain(swaps, row_swaps, col_swaps)
                 if constraintmap_.is_remap_legal(lay, lfreqs, remap))
             datas = pool.starmap(remapped_score, args, 200)
@@ -2732,11 +2735,12 @@ def steepest_ascent(layout_: layout.Layout, typingdata_: TypingData,
 def remapped_score(
         remap_: Remap, total_count, known_count, total_time,
         lay: layout.Layout, trigram_counts: dict, 
-        speed_func: typing.Union[Callable, dict]):
+        speed_func: typing.Union[Callable, dict], 
+        exclude_keys: Collection[str] = ()):
     # swaps should be length 2
     """(total_count, known_count, total_time, remap)"""
     
-    for ngram in lay.ngrams_with_any_of(remap_):
+    for ngram in lay.ngrams_with_any_of(remap_, exclude_keys=exclude_keys):
         try:
             tcount = trigram_counts[ngram]
         except KeyError: # contains key not in corpus
@@ -2788,6 +2792,9 @@ def anneal(layout_: layout.Layout, typingdata_: TypingData,
         if key in lfreqs)
     for key in lfreqs:
         lfreqs[key] /= total_lcount
+
+    unused_keys = set(key for key in lay.positions 
+        if key not in lfreqs or not bool(lfreqs[key]))
     
     scores = [total_time/total_count]
     T0 = 10
@@ -2815,7 +2822,7 @@ def anneal(layout_: layout.Layout, typingdata_: TypingData,
                     constraintmap_.is_remap_legal(lay, lfreqs, remap_)):
             remap_ = constraintmap_.random_legal_swap(lay, lfreqs, pins)
         data = remapped_score(remap_, total_count, known_count, total_time,
-            lay, corpus_.trigram_counts, speed_func)
+            lay, corpus_.trigram_counts, speed_func, unused_keys)
         score = data[2]/data[0]
         delta = score - scores[-1]
 

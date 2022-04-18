@@ -121,7 +121,7 @@ class Corpus:
                     except KeyError:
                         continue # probably \n but could also be special char
                 
-                if self.shift_policy == "once":
+                if bool(self.shift_key) and self.shift_policy == "once":
                     i = len(processed) - 1
                     while i >= 2:
                         if (processed[i] == self.shift_key 

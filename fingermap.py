@@ -28,13 +28,16 @@ class Finger(enum.IntEnum):
     RP = 5
     UNKNOWN = 0
 
+def unknown_finger(): # for picklability
+    return Finger.UNKNOWN
+
 class Fingermap:
 
     loaded = {} # dict of fingermaps
 
     def __init__(self, name: str) -> None:
         self.name = name
-        self.fingers = defaultdict(lambda: Finger.UNKNOWN) # type: Dict[Pos, Finger]
+        self.fingers = defaultdict(unknown_finger) # type: Dict[Pos, Finger]
         self.cols: Dict[Finger, List[Pos]] = {finger: [] for finger in Finger}
         with open("fingermaps/" + name) as file:
             self.build_from_string(file.read())

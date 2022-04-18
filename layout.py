@@ -1,6 +1,6 @@
 import itertools
 import json
-from typing import Iterable, Dict, Tuple, Callable
+from typing import Collection, Iterable, Dict, Tuple, Callable
 import threading
 import random
 import functools
@@ -220,11 +220,15 @@ class Layout:
         return tuple(self.to_nstroke(item) 
             for item in itertools.product(*options))
 
-    def ngrams_with_any_of(self, keys: Iterable[str], n: int = 3):
+    def ngrams_with_any_of(self, keys: Iterable[str], n: int = 3,
+            exclude_keys: Collection[str] = ()):
+        """Any key in exclude_keys will be excluded from the result."""
         # this method should avoid generating duplicates probably maybe
-        options = tuple(key for key in keys if key in self.positions)
-        inverse = tuple(key for key in self.positions if key not in options)
-        all = tuple(self.positions)
+        options = tuple(key for key in keys 
+            if key in self.positions and key not in exclude_keys)
+        inverse = tuple(key for key in self.positions 
+            if key not in options and key not in exclude_keys)
+        all = tuple(key for key in self.positions if key not in exclude_keys)
         for i in range(n):
             by_position = []
             for j in range(n):
