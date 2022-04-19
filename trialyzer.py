@@ -625,6 +625,27 @@ def main(stdscr: curses.window):
             message("\n" + analysis_target.name + "\n"
                     + repr(analysis_target), win=right_pane)
 
+    def cmd_layouts():
+        if not args:
+            message("Missing search terms. Did you mean 'list'?", gui_util.red)
+            return
+        layout_names = scan_dir()
+        if not layout_names:
+            message("No layouts found in /layouts/", gui_util.red)
+            return
+        layouts: list[layout.Layout] = []
+        for name in layout_names:
+            for str_ in args:
+                if str_ in name:
+                    layouts.append(layout.get_layout(name))
+                    break
+        if not layouts:
+            message(f"No layouts matched these terms")
+            return
+        message("\n")
+        for l in layouts:
+            message(f"\n{l.name}\n{repr(l)}", win=right_pane)
+
     def cmd_list():
         try:
             page_num = int(args[0])
@@ -1017,8 +1038,15 @@ def main(stdscr: curses.window):
         if not layout_file_list:
             message("No layouts found in /layouts/", gui_util.red)
             return
-        message(f"Analyzing {len(layout_file_list)} layouts >>>", gui_util.green)
-        layouts = [layout.get_layout(name) for name in layout_file_list]
+        layouts: list[layout.Layout] = []
+        if not args:
+            args.append("") # match all layouts
+        for name in layout_file_list:
+            for str_ in args:
+                if str_ in name:
+                    layouts.append(layout.get_layout(name))
+                    break
+        message(f"Analyzing {len(layouts)} layouts >>>", gui_util.green)
         data = {}
         width = max(len(name) for name in layout_file_list)
         padding = 3
@@ -1577,6 +1605,7 @@ def main(stdscr: curses.window):
             "h[elp]: Show this list",
             "reload [layout name]: Reload layout(s) from files",
             "l[ayout] [layout name]: View layout",
+            "layouts <search terms>: View multiple layouts",
             "list [page]: List all layouts",
             "q[uit]",
             "----Data commands----",
@@ -2145,6 +2174,8 @@ def main(stdscr: curses.window):
                 cmd_target()
             elif command in ("l", "layout"):
                 cmd_layout()
+            elif command in ("layouts",):
+                cmd_layouts()
             elif command in ("list",):
                 cmd_list()
             elif command in ("u", "use"):
