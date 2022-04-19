@@ -17,6 +17,7 @@
 from collections import Counter
 import itertools
 import json
+from timeit import repeat
 from typing import Type
 
 Bigram = tuple[str, str]
@@ -26,10 +27,12 @@ default_lower = """`1234567890-=qwertyuiop[]\\asdfghjkl;'zxcvbnm,./"""
 default_upper = """~!@#$%^&*()_+QWERTYUIOP{}|ASDFGHJKL:"ZXCVBNM<>?"""
 
 def display_name(key: str, corpus_settings: dict):
-    if key == corpus_settings["space_key"]:
+    if key == corpus_settings.get("space_key", None):
         return "space"
-    elif key == corpus_settings["shift_key"]:
+    elif key == corpus_settings.get("shift_key", None):
         return "shift"
+    elif key == corpus_settings.get("repeat_key", None):
+        return "repeat"
     else:
         return key
 
@@ -38,14 +41,19 @@ def display_str(ngram: tuple[str, ...], corpus_settings: dict):
 
 def undisplay_name(key: str, corpus_settings: dict):
     if key == "space":
-        return corpus_settings["space_key"]
+        return corpus_settings.get("space_key", key)
     elif key == "shift":
-        return corpus_settings["shift_key"]
+        return corpus_settings.get("shift_key", key)
+    elif key == "repeat":
+        return corpus_settings.get("repeat_key", key)
     else:
         return key
 
 def create_replacements(space_key: str, shift_key: str, 
         special_replacements: dict[str, tuple[str,...]]):
+    """A dict from direct corpus characters to key sequences. 
+    For example, "A" becomes the shift key and "a".
+    """
     if space_key:
         replacements = {" ": (space_key,)}
     else:
@@ -78,6 +86,7 @@ class Corpus:
                  shift_policy: str = "once",
                  special_replacements: dict[str, tuple[str,...]] = {},
                  precision: int = 500, 
+                 repeat_key: str = "",
                  json_dict: dict = None, other: Type["Corpus"] = None) -> None:
         """shift_policy can be "once" or "each". "once" means that when 
         consecutive capital letters occur, shift is only pressed once before 
@@ -88,6 +97,7 @@ class Corpus:
         self.shift_key = shift_key
         self.shift_policy = shift_policy
         self.special_replacements = special_replacements
+        self.repeat_key = repeat_key
 
         if json_dict is not None:
             self._json_load(json_dict)
@@ -128,6 +138,11 @@ class Corpus:
                             and processed[i-2] == self.shift_key):
                             processed.pop(i)
                         i -= 1
+
+                if bool(self.repeat_key):
+                    for i in range(1, len(processed)):
+                        if processed[i] == processed[i-1]:
+                            processed[i] = self.repeat_key
                         
                 line = tuple(processed)
                 self.key_counts.update(line)
@@ -161,6 +176,7 @@ class Corpus:
             "shift_key": self.shift_key,
             "shift_policy": self.shift_policy,
             "special_replacements": self.special_replacements,
+            "repeat_key": self.repeat_key,
             "key_counts": self.key_counts,
             "bigram_counts": repr(self.bigram_counts),
             "trigram_counts": repr(self.trigram_counts)
@@ -175,6 +191,8 @@ class Corpus:
             raise TranslationError(f"Cannot translate missing shift key")
         if self.special_replacements != other.special_replacements:
             raise TranslationError("Cannot translate differing special_replacements")
+        if bool(self.repeat_key) != bool(other.repeat_key):
+            raise TranslationError("Cannot translate missing repeat key")
 
         self.replacements = create_replacements(
             self.space_key, self.shift_key, self.special_replacements
@@ -182,6 +200,7 @@ class Corpus:
         conversion: dict[str, str] = {}
         conversion[other.space_key] = self.space_key
         conversion[other.shift_key] = self.shift_key
+        conversion[other.repeat_key] = self.repeat_key
         self.key_counts = Counter()
         for ko, count in other.key_counts.items():
             self.key_counts[conversion.get(ko, ko)] = count
@@ -204,6 +223,7 @@ def get_corpus(filename: str,
                shift_key: str = "shift",
                shift_policy: str = "once",
                special_replacements: dict[str, tuple[str,...]] = {},
+               repeat_key: str = "",
                precision: int = 500):
     
     any_loaded = False
@@ -221,7 +241,8 @@ def get_corpus(filename: str,
             corpus_.space_key == space_key and
             corpus_.shift_key == shift_key and
             corpus_.shift_policy == shift_policy and
-            corpus_.special_replacements == special_replacements
+            corpus_.special_replacements == special_replacements and
+            corpus_.repeat_key == repeat_key
         ):
             corpus_.set_precision(precision)
             return corpus_
@@ -230,7 +251,7 @@ def get_corpus(filename: str,
     for corpus_ in loaded:
         try:
             new_ = Corpus(filename, space_key, shift_key, shift_policy, 
-                special_replacements, precision, other=corpus_)
+                special_replacements, precision, repeat_key, other=corpus_)
         except TranslationError:
             continue # translation unsuccessful
         loaded.append(new_)
@@ -238,7 +259,7 @@ def get_corpus(filename: str,
 
     # create entire new one
     new_ = Corpus(filename, space_key, shift_key, shift_policy, 
-        special_replacements, precision)
+        special_replacements, precision, repeat_key)
     loaded.append(new_)
     disk_list.append(new_)
     _save_corpus_list(filename)
@@ -247,19 +268,20 @@ def get_corpus(filename: str,
 def _load_corpus_list(filename: str, precision: int = 500):
     try:
         with open(f"corpus/{filename}.json") as file:
-            json_list = json.load(file)
+            json_list: list[dict] = json.load(file)
     except FileNotFoundError:
         return
     result = []
     for c in json_list:
         filename = c["filename"]
-        space_key = c["space_key"]
-        shift_key = c["shift_key"]
+        space_key = c.get("space_key", "")
+        shift_key = c.get("shift_key", "")
         shift_policy = c["shift_policy"]
-        special_replacements = c["special_replacements"]
+        special_replacements = c.get("special_replacements", {})
+        repeat_key = c.get("repeat_key", "")
         result.append(Corpus(
             filename, space_key, shift_key, shift_policy, 
-            special_replacements, precision, c
+            special_replacements, precision, repeat_key, json_dict=c
         ))
     loaded.extend(result)
     disk_list.extend(result)

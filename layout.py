@@ -45,6 +45,7 @@ class Layout:
         first_col = 1
         fingermap_defined = False
         board_defined = False
+        self.repeat_key = ""
         for row in s.splitlines():
             tokens = row.split("//", 1)[0].split(" ")
             if tokens[0] == "fingermap:" and len(tokens) >= 2:
@@ -59,8 +60,10 @@ class Layout:
                 except ValueError:
                     first_row = fingermap.Row[tokens[1]]
                 first_col = int(tokens[2])
-            elif tokens[0] == "special:" and len(tokens) >= 2:
-                self.special_replacements[tokens[0]] = tuple(tokens[1:])
+            elif tokens[0] == "special:" and len(tokens) >= 3:
+                self.special_replacements[tokens[1]] = tuple(tokens[2:])
+            elif tokens[0] == "repeat_key:" and len(tokens) >= 2:
+                self.repeat_key = tokens[1]
             else:
                 rows.append(tokens)
         if not fingermap_defined:
@@ -142,6 +145,10 @@ class Layout:
                 except KeyError:
                     keys.append("")
             rows.append(" ".join(keys))
+        if bool(self.repeat_key):
+            rows.append(f"repeat_key: {self.repeat_key}")
+        for k, v in self.special_replacements.items():
+            rows.append(f"special: {k} {' '.join(v)}")
         return "\n".join(rows)
 
     def get_board_keys(self):
@@ -310,6 +317,7 @@ class Layout:
             settings["shift_key"],
             settings["shift_policy"],
             self.special_replacements,
+            self.repeat_key,
             settings["precision"]
         )
 

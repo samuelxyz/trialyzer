@@ -642,7 +642,6 @@ def main(stdscr: curses.window):
         if not layouts:
             message(f"No layouts matched these terms")
             return
-        message("\n")
         for l in layouts:
             message(f"\n{l.name}\n{repr(l)}", win=right_pane)
 
