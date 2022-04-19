@@ -462,33 +462,38 @@ def main(stdscr: curses.window):
             args.pop(0)
             with_fingers = set()
             without_fingers = set()
-            desired_keys = set()
-            try:
-                for i in reversed(range(len(args))):
-                    if args[i] == "with":
-                        for _ in range(len(args)-i-1):
-                            with_fingers.add(Finger[args.pop()])
-                        args.pop() # remove "with"
-                    elif args[i] == "without":
-                        for _ in range(len(args)-i-1):
-                            without_fingers.add(Finger[args.pop()])
-                        args.pop() # remove "without"
-                    elif args[i] == "keys":
-                        for _ in range(len(args)-i-1):
-                            key = args.pop()
-                            desired_keys.add(key)
-                            desired_keys.add(display_name(key, corpus_settings))
-                            desired_keys.add(undisplay_name(key, corpus_settings))
-                        args.pop() # remove "keys"
-            except KeyError:
-                message("Usage:\n"
-                    "t[ype] cat [category] [with <fingers>] [without <fingers>] "
-                        "[keys <keys>]",
-                    gui_util.red)
-                return
+            with_keys = set()
+            without_keys = set()
+            for i in reversed(range(len(args))):
+                if args[i] == "with":
+                    for _ in range(len(args)-i-1):
+                        item = args.pop()
+                        try:
+                            with_fingers.add(Finger[item])
+                        except KeyError:
+                            with_keys.add(item)
+                            with_keys.add(item)
+                            with_keys.add(display_name(item, corpus_settings))
+                            with_keys.add(undisplay_name(item, corpus_settings))
+                    args.pop() # remove "with"
+                elif args[i] == "without":
+                    for _ in range(len(args)-i-1):
+                        item = args.pop()
+                        try:
+                            without_fingers.add(Finger[item])
+                        except KeyError:
+                            without_keys.add(item)
+                            without_keys.add(
+                                display_name(item, corpus_settings))
+                            without_keys.add(
+                                undisplay_name(item, corpus_settings))
+                    args.pop() # remove "without"
             if not with_fingers:
-                with_fingers = set(Finger)
+                with_fingers.update(Finger)
             with_fingers -= without_fingers
+            if not with_keys:
+                with_keys.update(analysis_target.positions)
+            with_keys -= without_keys
             if not args:
                 category = ""
             else:
@@ -498,7 +503,7 @@ def main(stdscr: curses.window):
             targ_tg = None
             applicable = applicable_function(category)
             for tg in target_corpus.all_trigrams:
-                if desired_keys and desired_keys.isdisjoint(tg):
+                if with_keys and with_keys.isdisjoint(tg):
                     continue
                 try:
                     ts = analysis_target.to_nstroke(tg)
@@ -605,6 +610,7 @@ def main(stdscr: curses.window):
                 analysis_target = layout.get_layout(layout_name)
                 message("Set " + layout_name + " as the analysis target.",
                         gui_util.green)
+                corpus_settings["repeat_key"] = analysis_target.repeat_key
                 save_session_settings()
             except FileNotFoundError:
                 message(f"/layouts/{layout_name} was not found.", 
@@ -1613,8 +1619,8 @@ def main(stdscr: curses.window):
             "alias list: Show existing aliases",
             "alias remove <key1> <key2> [key3, ...]: Remove alias",
             "t[ype] [trigram]: Run typing test",
-            "t[ype] cat [category] [with <fingers>] [without <fingers>]"
-                " [keys <keys>]: Run typing test with trigram of a certain type",
+            "t[ype] cat [category] [with <fingers/keys>] [without <fingers/keys>]: "
+                "Run typing test with trigram of a certain type",
             "c[lear] <trigram>: Erase data for trigram",
             "df [filename]: Set typing data file, or use default",
             "corpus <filename> [space_key [shift_key [shift_policy]]]: "
@@ -1641,7 +1647,7 @@ def main(stdscr: curses.window):
             "bs [bistroke]: Show specified/all bistroke stats",
             "ts [tristroke]: Show specified/all tristroke stats",
             "tsc [category]: Show tristroke category/total stats",
-            "tgc [category] [with <fingers>] [without <fingers>]: "
+            "tgc [category] [with <fingers/keys>] [without <fingers/keys>]: "
                 "Show speeds and trigrams of interest in recorded data",
             "tgcdiff [baseline_layout] <layout> <args for tgc>: "
                 "Like tgc but shows how trigrams vary between layouts",
@@ -1740,24 +1746,25 @@ def main(stdscr: curses.window):
     def cmd_tgc():
         with_fingers = set()
         without_fingers = set()
-        try:
-            for i in reversed(range(len(args))):
-                if args[i] == "with":
-                    for _ in range(len(args)-i-1):
-                        with_fingers.add(Finger[args.pop()])
-                    args.pop() # remove "with"
-                elif args[i] == "without":
-                    for _ in range(len(args)-i-1):
-                        without_fingers.add(Finger[args.pop()])
-                    args.pop() # remove "without"
-        except KeyError:
-            message("Usage:\n"
-                "tgc [category] [with <fingers>] [without <fingers>]",
-                gui_util.red)
-            return
-        if not with_fingers:
-            with_fingers = set(Finger)
-        with_fingers -= without_fingers
+        with_keys = set()
+        without_keys = set()
+        for i in reversed(range(len(args))):
+            if args[i] == "with":
+                for _ in range(len(args)-i-1):
+                    item = args.pop()
+                    try:
+                        with_fingers.add(Finger[item])
+                    except KeyError:
+                        with_keys.add(undisplay_name(item, corpus_settings))
+                args.pop() # remove "with"
+            elif args[i] == "without":
+                for _ in range(len(args)-i-1):
+                    item = args.pop()
+                    try:
+                        without_fingers.add(Finger[item])
+                    except KeyError:
+                        without_keys.add(undisplay_name(item, corpus_settings))
+                args.pop() # remove "without"
         if not args:
             category = ""
         else:
@@ -1771,7 +1778,7 @@ def main(stdscr: curses.window):
 
         stats = trigrams_with_specifications(
             typingdata_, corpus_settings, analysis_target, category, 
-            with_fingers, without_fingers
+            with_fingers, without_fingers, with_keys, without_keys
         )
         overall = stats.pop("")
         display_name = (category_display_names[category] 
@@ -1847,7 +1854,7 @@ def main(stdscr: curses.window):
     def cmd_tgc_diff():
         if not args:
             message("Usage: tgcdiff [baseline_layout] <layout> [category] "
-                "[with <fingers>] [without <fingers>]", gui_util.red)
+                "[with <fingers/keys>] [without <fingers/keys>]", gui_util.red)
             return
         
         lay1, remain = extract_layout_front(args)
@@ -1869,23 +1876,25 @@ def main(stdscr: curses.window):
 
         with_fingers = set()
         without_fingers = set()
-        try:
-            for i in reversed(range(len(remain))):
-                if remain[i] == "with":
-                    for _ in range(len(remain)-i-1):
-                        with_fingers.add(Finger[remain.pop()])
-                    remain.pop() # remove "with"
-                elif remain[i] == "without":
-                    for _ in range(len(remain)-i-1):
-                        without_fingers.add(Finger[remain.pop()])
-                    remain.pop() # remove "without"
-        except KeyError:
-            message("Usage: tgcdiff [baseline_layout] <layout> [category] "
-                "[with <fingers>] [without <fingers>]", gui_util.red)
-            return
-        if not with_fingers:
-            with_fingers = set(Finger)
-        with_fingers -= without_fingers
+        with_keys = set()
+        without_keys = set()
+        for i in reversed(range(len(remain))):
+            if remain[i] == "with":
+                for _ in range(len(remain)-i-1):
+                    item = remain.pop()
+                    try:
+                        with_fingers.add(Finger[item])
+                    except KeyError:
+                        with_keys.add(undisplay_name(item, corpus_settings))
+                remain.pop() # remove "with"
+            elif remain[i] == "without":
+                for _ in range(len(remain)-i-1):
+                    item = remain.pop()
+                    try:
+                        without_fingers.add(Finger[item])
+                    except KeyError:
+                        without_keys.add(undisplay_name(item, corpus_settings))
+                remain.pop() # remove "without"
         if not remain:
             category = ""
         else:
@@ -2364,31 +2373,36 @@ def trigrams_with_specifications_raw(
         typingdata_: TypingData, corpus_settings: dict, 
         layout_: layout.Layout, category: str,
         with_fingers: set[Finger] = set(Finger), 
-        without_fingers: set[Finger] = set()):
+        without_fingers: set[Finger] = set(),
+        with_keys: set[str] = set(),
+        without_keys: set[str] = set()):
     """Returns total_layout_count and a 
     dict[trigram_tuple, (count, total_time, is_exact)].
     In the dict, the \"\" key gives the total 
     (count, total_time, exact_count) for the entire given category.
     """
+    if not with_fingers:
+        with_fingers.update(Finger)
+    with_fingers.difference_update(without_fingers)
+    if not with_keys:
+        with_keys.update(layout_.positions)
+    with_keys.difference_update(without_keys)
     applicable = applicable_function(category)
     result = {"": [0, 0, 0]} # total_count, total_time, known_count for category
     total_count = 0 # for all trigrams
     speed_calc =  typingdata_.tristroke_speed_calculator(layout_)
     for trigram, count in layout_.get_corpus(
             corpus_settings).trigram_counts.items():
+        if (with_keys.isdisjoint(trigram) 
+                or not without_keys.isdisjoint(trigram)):
+            continue
         try:
             tristroke = layout_.to_nstroke(trigram)
         except KeyError:
             continue
         total_count += count
-        if with_fingers.isdisjoint(tristroke.fingers):
-            continue
-        reject = False
-        for finger in tristroke.fingers:
-            if finger in without_fingers:
-                reject = True
-                break
-        if reject:
+        if (with_fingers.isdisjoint(tristroke.fingers)
+                or not without_fingers.isdisjoint(tristroke.fingers)):
             continue
         cat = tristroke_category(tristroke)
         if not applicable(cat):
@@ -2405,13 +2419,15 @@ def trigrams_with_specifications(
         typingdata_: TypingData, corpus_settings: dict, 
         layout_: layout.Layout, category: str, 
         with_fingers: set[Finger] = set(Finger), 
-        without_fingers: set[Finger] = set()):
+        without_fingers: set[Finger] = set(),
+        with_keys: set[str] = set(),
+        without_keys: set[str] = set()):
     """Returns dict[trigram_tuple, (freq, avg_ms, ms, is_exact)],
     except for the key \"\" which gives (freq, avg_ms, ms, exact_percent)
     for the entire given category."""
     layout_count, raw = trigrams_with_specifications_raw(
             typingdata_, corpus_settings, layout_, category,
-            with_fingers, without_fingers)
+            with_fingers, without_fingers, with_keys, without_keys)
     raw[""][2] = raw[""][2]/raw[""][0] if raw[""][0] else 0
     result = dict()
     for key in raw:
