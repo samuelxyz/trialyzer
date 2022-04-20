@@ -545,6 +545,9 @@ def main(stdscr: curses.window):
             try:
                 tristroke = user_layout.to_nstroke(tuple(args))
             except KeyError:
+                if len(args[0]) != 3:
+                    message("Malformed trigram", gui_util.red)
+                    return
                 try:
                     tristroke = user_layout.to_nstroke(tuple(args[0]))
                 except (KeyError, ValueError):
@@ -834,24 +837,22 @@ def main(stdscr: curses.window):
 
     def cmd_analyze_swap(show_all: bool = False):
 
-        if not args:
-            message("Usage: aswap [letter1 letter2] [...]", gui_util.red)
-            return
-
-        if len(args) % 2:
-            message(f"{' '.join(args)} is an odd number of swaps "
-                f"({len(args)}), should be even", gui_util.red)
+        if len(args) < 2:
+            message("Usage: aswap [letter1 ... [with letter2 ...]]", gui_util.red)
             return
         
         baseline_layout = analysis_target
-        swaps = args
+        if "with" in args:
+            i = args.index("with")
+            remap_ = remap.set_swap(args[:i], args[i+1:])
+        else:
+            remap_ = remap.cycle(args)
 
         target_layout = layout.Layout(
-            f"{baseline_layout.name}, swapped {' '.join(swaps)}", 
+            f"{baseline_layout.name}, {remap_}", 
             False, repr(baseline_layout))
         try:
-            while swaps:
-                target_layout.remap((swaps.pop(0), swaps.pop(0)))
+            target_layout.remap(remap_)
         except KeyError as ke:
             message(f"Key '{ke.args[0]}' does not exist "
                     f"in layout {baseline_layout.name}",
