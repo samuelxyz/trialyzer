@@ -625,8 +625,11 @@ def main(stdscr: curses.window):
                 message("\n"+ layout_name + "\n"
                         + repr(layout.get_layout(layout_name)), win=right_pane)
             except FileNotFoundError:
-                message(f"/layouts/{layout_name} was not found.", 
-                        gui_util.red)
+                message(f"/layouts/{layout_name} was not found.",
+                    gui_util.red)
+                message("Searching for similar layouts...",
+                    gui_util.blue)
+                cmd_layouts()
         else:
             message("\n" + analysis_target.name + "\n"
                     + repr(analysis_target), win=right_pane)
