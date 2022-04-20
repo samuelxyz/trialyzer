@@ -547,7 +547,7 @@ def main(stdscr: curses.window):
             except KeyError:
                 try:
                     tristroke = user_layout.to_nstroke(tuple(args[0]))
-                except KeyError:
+                except (KeyError, ValueError):
                     message("Malformed trigram", gui_util.red)
                     return
             estimate, _ = typingdata_.tristroke_speed_calculator(
@@ -1606,9 +1606,11 @@ def main(stdscr: curses.window):
             "",
             "",
             "Command <required thing> [optional thing] option1|option2",
-            "-----Repeating a command-----",
-            "Precede with a number to repeat the command n times.",
-            "For example, '10 anneal QWERTY'",
+            "-----Multiple and repeating commands-----",
+            "Precede with a number to execute the command n times.",
+            "For example, \"10 anneal QWERTY\".",
+            "\".\" is shorthand for \"the last thing entered\".",
+            "For example, \"2 .\".",
             "------General commands------",
             "h[elp]: Show this list",
             "reload [layout name]: Reload layout(s) from files",
@@ -2155,6 +2157,9 @@ def main(stdscr: curses.window):
         
         content_win.refresh()
 
+    last_command = ""
+    last_args = []
+
     while True:
         content_win.addstr(height-2, 0, "> ")
         print_header()
@@ -2162,19 +2167,28 @@ def main(stdscr: curses.window):
         input_win.clear()
         input_win.refresh()
 
-        args = get_input().split()
-        if not len(args):
+        input_args = get_input().split()
+        if not len(input_args):
             continue
-        command = args.pop(0).lower()
+        command = input_args.pop(0).lower()
         try:
             num_repetitions = int(command)
-            command = args.pop(0).lower()
+            command = input_args.pop(0).lower()
         except ValueError:
             num_repetitions = 1
-        original_args = args.copy()
+        
+        if command in (".",):
+            command = last_command
+            input_args = last_args
+        else:
+            last_command = command
+            last_args = input_args.copy()
+
+        if not command:
+            continue
         
         for _ in range(num_repetitions):
-            args = original_args.copy()
+            args = input_args.copy()
             if command in ("q", "quit"):
                 return
             elif command in ("t", "type"):
