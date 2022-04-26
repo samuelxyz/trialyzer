@@ -26,14 +26,13 @@ Features:
 - Rank layouts by a large variety of different statistics
 - Draw layout heatmaps using a large variety of different statistics
 - Custom layouts, fingermaps, and even physical board definitions can be added in files
-- Layout optimization by simulated annealing and steepest ascent, with key pinning
+- Layout optimization by simulated annealing and steepest ascent, with key pinning and usage constraints
 - Load arbitrary corpora with rules for shift and space
 
 Planned:
 - Further generation/optimization tools including swap suggestions, interactive layout editor, etc
 - More fingermaps, boards, layouts
-- Alt fingering and sliding
-- Custom shift mappings, dynamic/repeat keys
+- Alt fingering and sliding, dynamic keys
 
 ## What makes trialyzer special?
 
@@ -64,6 +63,8 @@ Of course, this approach comes with some limitations and drawbacks.
     - Of course, extrapolation is never as good as actual complete data, so the more you test, the better the results will be. 
 - Trigrams don't capture the entire flow of longer sequences. A quadgram might have an uncomfortable interaction between the first and fourth letters, which won't be captured by trialyzer.
     - On the plus side, trigrams are at least much better than the older bigram-only statistics, while remaining within practical limits. Longer sequences quickly become combinatorically problematic to test and calculate, with a much larger number of possibilities than even trigrams. Perhaps trigram data can be split apart and pieced back together to form approximate measurements for longer sequences, which wouldn't require extra data collection but would still be a computational burden... an idea for later, perhaps?
+
+![The data trap (from xkcd)](https://imgs.xkcd.com/comics/data_trap_2x.png)
 
 ## Terminology
 
