@@ -12,3 +12,4 @@ fingermaps/kathy
 .tmp*
 /corpus/shai.txt
 /corpus/*.json
+trialyzer.code-workspace
