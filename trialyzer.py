@@ -1,9 +1,13 @@
 # Entry point for the trialyzer application
 # Contains main user interface and analysis features
 
+from audioop import lin2adpcm
+from codecs import latin_1_decode
+from collections import defaultdict
 import csv
 import curses
 import curses.textpad
+import enum
 import itertools
 import json
 import math
@@ -1657,6 +1661,7 @@ def main(stdscr: curses.window):
                 "Show speeds and trigrams of interest in recorded data",
             "tgcdiff [baseline_layout] <layout> <args for tgc>: "
                 "Like tgc but shows how trigrams vary between layouts",
+            "diff <layout1> [layout2]: General layout similarity analysis",
             "----Editing/Optimization----",
             "cm|constraintmap [constraintmap name]: Set constraintmap",
             "i[mprove]|ascend [layout name] [pin <keys>]: "
@@ -2023,6 +2028,134 @@ def main(stdscr: curses.window):
                 row += 1
         right_pane.refresh()
 
+    def cmd_diff():
+        nonlocal analysis_target
+        if not args:
+            message("Usage: diff <layout1> [layout2]", gui_util.red)
+            return
+        
+        l1 = None
+        lay1, remain = extract_layout_front(args)
+        if lay1:
+            if remain:
+                lay2, _ = extract_layout_front(remain, True)
+                if lay2:
+                    l1, l2 = lay1, lay2
+                else:
+                    message(f"/layouts/{' '.join(remain)} was not found.",
+                        gui_util.red)
+                    return
+            else:
+                l1, l2 = analysis_target, lay1
+        else:
+            message(f"/layouts/{' '.join(args)} was not found.",
+                gui_util.red)
+            return
+
+        message("Crunching the numbers >>>", gui_util.green)
+
+        #   Comparison    exact  (freq)    same-finger (freq)    close (freq)   same-hand (freq)
+        #   single
+        #   bistroke
+        #   tristroke
+        #   ---
+        #   TODO: Mirrored -----------------------------------------
+
+        # Remap
+        remap_ = remap.layout_diff(l1, l2)
+        # num_keys = min(len(l1.keys), len(l2.keys))
+        # changed_keys = num_keys - len(remap_)
+
+        # Comparison functions
+
+        def exact(s1: Nstroke, s2: Nstroke):
+            return s1 == s2
+        def same_finger(s1: Nstroke, s2: Nstroke):
+            return s1.fingers == s2.fingers
+        def close(s1: Nstroke, s2: Nstroke):
+            for c1, c2 in zip(s1.coords, s2.coords):
+                if (c2.x - c1.x)**2 + (c2.y - c1.y)**2 > 2.26:
+                    return False
+            return True
+        def same_hand(s1: Nstroke, s2: Nstroke):
+            for f1, f2 in zip(s1.fingers, s2.fingers):
+                if (f1 > 0) != (f2 > 0):
+                    return False
+            return True
+
+        # Processing
+
+        corpus_ = l1.get_corpus(corpus_settings)
+        counts = defaultdict(list)
+        totals = defaultdict(list)
+        freqs = defaultdict(list)
+        col_titles = ("exact", "same_finger", "close", "same_hand")
+        criteria = (exact, same_finger, close, same_hand)
+        row_titles = ("single", "bistroke", "tristroke")
+        sources = (corpus_.key_counts, corpus_.bigram_counts, corpus_.trigram_counts)
+        for row_title, source in zip(row_titles, sources):
+            for criterion in criteria:
+                crit_count = 0
+                crit_freq_count = 0
+                total = 0
+                freq_total = 0
+                for key, fcount in source.items():
+                    try:
+                        s1 = l1.to_nstroke((key))
+                        s2 = l2.to_nstroke((key))
+                        total += 1
+                        freq_total += fcount
+                        if criterion(s1, s2):
+                            crit_count += 1
+                            crit_freq_count += fcount
+                    except KeyError:
+                        continue
+                counts[row_title].append(crit_count)
+                totals[row_title].append(total)
+                freqs[row_title].append(crit_freq_count/freq_total)
+
+        # Output
+
+        # heatmaps
+        args.clear()
+        args.append("freq")
+        old_analysis_target = analysis_target
+        analysis_target = l1
+        cmd_draw()
+        analysis_target = l2
+        cmd_draw()
+        analysis_target = old_analysis_target
+
+        # Remap
+        message(f"Remap:\n{remap_}\n", win=right_pane)
+
+        # Table
+        # gui_util.apply_scales() is not really made for this so
+        # we'll use gui_util.color_scale() directly
+        message(
+            f"Similarity  perfect (freq)  same-finger (freq)    "
+            f"close (freq)   same-hand (freq)", win=right_pane)
+        row = right_pane.getmaxyx()[0] - 1
+        col_spacing = 17
+        first_col = 14
+        for row_title in row_titles:
+            # message(row_title, win=right_pane)
+            right_pane.scroll(1)
+            right_pane.addstr(row, 0, row_title, 0)
+            for i in range(len(col_titles)):
+                count = counts[row_title][i]
+                pct = freqs[row_title][i]
+                right_pane.addstr(
+                    row, first_col + i*col_spacing, f"{count:5d}",
+                    curses.color_pair(gui_util.color_scale(
+                        0, totals[row_title][i], count)))
+                right_pane.addstr(
+                    row, first_col + i*col_spacing+6, f"({pct:5.2%})",
+                    curses.color_pair(gui_util.color_scale(
+                        0, 1, pct)))
+
+        right_pane.refresh()
+
     def cmd_reload():
         if args:
             layout_name = " ".join(args)
@@ -2252,6 +2385,8 @@ def main(stdscr: curses.window):
                 cmd_tgc()
             elif command == "tgcdiff":
                 cmd_tgc_diff()
+            elif command == "diff":
+                cmd_diff()
             elif command == "reload":
                 cmd_reload()
             elif command == "draw":
