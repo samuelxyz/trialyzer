@@ -2101,6 +2101,8 @@ def main(stdscr: curses.window):
                 freq_total = 0
                 for key, fcount in source.items():
                     try:
+                        if not isinstance(key, tuple):
+                            key = (key,)
                         s1 = l1.to_nstroke((key))
                         s2 = l2.to_nstroke((key))
                         total += 1
@@ -2112,7 +2114,8 @@ def main(stdscr: curses.window):
                         continue
                 counts[row_title].append(crit_count)
                 totals[row_title].append(total)
-                freqs[row_title].append(crit_freq_count/freq_total)
+                freqs[row_title].append(
+                    crit_freq_count/freq_total if freq_total else 0)
 
         # Output
 
