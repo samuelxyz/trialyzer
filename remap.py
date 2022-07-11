@@ -11,7 +11,7 @@ from fingermap import Pos, Row
 def cycle(keys: Sequence[str]):
     remap = Remap()
     for i in range(len(keys)):
-        remap[keys[i]] = keys[i-1]
+        remap[keys[i]] = keys[(i + 1) % len(keys)]
     return remap
 
 swap = cycle
@@ -58,44 +58,69 @@ def layout_diff(initial: Layout, target: Layout):
     but not the other.
     """
     remap = Remap()
-    for ipos, src in initial.keys.items():
+    for ipos, key in initial.keys.items():
         try:
-            if src in remap:
+            if key in remap:
                 continue
-            tpos = target.positions[src]
+            tpos = target.positions[key]
             if ipos == tpos:
                 continue
             dest = initial.keys[tpos]
-            first = src
+            first = key
             while dest != first:
-                remap[src] = dest
-                src = dest
-                dest = initial.keys[target.positions[src]]
+                remap[key] = dest
+                key = dest
+                dest = initial.keys[target.positions[key]]
         except KeyError:
             continue
     return remap
 
 class Remap(dict):
+    """Remap stored as {key: destination for all moved keys}"""
     
     def translate(self, ngram: Iterable[str]) -> tuple[str, ...]:
         return tuple(self.get(key, key) for key in ngram)
 
-    def __str__(self) -> str:
-        if not self:
-            return "no-op"
+    def _parse(self) -> tuple[Iterable, Iterable]:
+        """Returns (cycles, swaps)"""
 
+        if not self:
+            return ((),())
+        
         sequences = []
-        for key, nextkey in self.items():
-            added = False
-            for sequence in sequences:
-                if sequence[-1] == key:
-                    added = True
-                    if sequence[0] != nextkey:
-                        sequence.append(nextkey)
-                    continue
-            if not added:
-                sequences.append([key, nextkey])
-        descriptions = []
+        consumed = set()
+        check_for_merging = False
+        for first_key, next_key in self.items():
+            if first_key in consumed:
+                continue
+            sequence = [first_key]
+            while next_key != first_key:
+                sequence.append(next_key)
+                try:
+                    next_key = self[next_key]
+                    if next_key in consumed:
+                        break
+                except KeyError:
+                    sequence.append("unknown")
+                    check_for_merging = True
+                    break
+            sequences.append(sequence)
+            consumed.update(sequence)
+
+        while check_for_merging:
+            remove = []
+            for i in range(len(sequences)):
+                if sequences[i][-1] == "unknown":
+                    for sequence in sequences:
+                        if sequence[-1] == sequences[i][0]:
+                            remove.append(i)
+                            sequence.extend(sequences[i][1:])
+            for i in sorted(remove, reverse=True):
+                sequences.pop(i)
+            if not remove:
+                break
+            remove.clear()
+        
         cycles = []
         swaps = []
         for sequence in sequences:
@@ -103,6 +128,15 @@ class Remap(dict):
                 cycles.append(sequence)
             else:
                 swaps.append(sequence)
+        return (cycles, swaps)
+
+    def __str__(self) -> str:
+        if not self:
+            return "no-op"
+
+        descriptions = []
+        cycles, swaps = self._parse()
+        
         if swaps:
             src, dest = zip(*swaps)
             descriptions.append(f"{' '.join(src)} <-> {' '.join(dest)}")
@@ -111,15 +145,34 @@ class Remap(dict):
         
         return ", ".join(descriptions)
 
+    def __repr__(self) -> str:
+        if not self:
+            return "Remap()"
+        
+        descriptions = []
+        cycles, swaps = self._parse()
+        
+        if swaps:
+            src, dest = zip(*swaps)
+            if len(src) > 1:
+                descriptions.append(f"set_swap(({', '.join(repr(c) for c in src)}), " 
+                    f"({', '.join(repr(c) for c in dest)}))")
+            else:
+                descriptions.append(f"swap(({repr(src[0])}, {repr(dest[0])}))")
+        for cycle_ in cycles:
+            descriptions.append(f"cycle(({', '.join(repr(c) for c in cycle_)}))")
+
+        return " + ".join(descriptions)
+
     def __add__(self, other: type["Remap"]):
         if not isinstance(other, Remap):
             return NotImplemented
         result = Remap()
-        for src, dest in self.items():
-            result[src] = other.get(dest, dest)
-        for src, dest in other.items():
-            if src not in result:
-                result[src] = dest
+        for key, dest in other.items():
+            result[key] = self.get(dest, dest)
+        for key in self:
+            if key not in result:
+                result[key] = self[key]
         return Remap((k, v) for k, v in result.items() if k != v)
 
     def __neg__(self):
@@ -135,18 +188,5 @@ if __name__ == "__main__": # for testing
     import layout
 
     qwerty = layout.get_layout('qwerty')
-    cmk = layout.get_layout('colemak')
-    dh = layout.get_layout('colemak_dh')
-    dh_ansi = layout.get_layout('colemak_ca_ansi')
-    
-    # print(layout_diff(cmk, dh))
-    # print(repr(cmk))
-    # print(repr(dh))
-
-    dh_remap = layout_diff(cmk, dh)
-    print(dh_remap - dh_remap)
-
-    print(layout_diff(qwerty, cmk))
-    print(repr(qwerty))
-    print(repr(cmk))
-
+    dv = layout.get_layout('dvorak')
+    print(layout_diff(qwerty, dv))
