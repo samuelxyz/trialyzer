@@ -850,7 +850,7 @@ def main(stdscr: curses.window):
             i = args.index("with")
             remap_ = remap.set_swap(args[:i], args[i+1:])
         else:
-            remap_ = remap.cycle(args)
+            remap_ = remap.cycle(*args)
 
         target_layout = layout.Layout(
             f"{baseline_layout.name}, {remap_}", 
@@ -2903,7 +2903,7 @@ def steepest_ascent(layout_: layout.Layout, typingdata_: TypingData,
     scores = [total_time/total_count]
     rows = tuple({pos.row for pos in lay.keys})
     cols = tuple({pos.col for pos in lay.keys})
-    swaps = tuple(remap.swap(pair) for pair in itertools.combinations(swappable, 2))
+    swaps = tuple(remap.swap(*pair) for pair in itertools.combinations(swappable, 2))
     trigram_counts = lay.get_corpus(corpus_settings).trigram_counts
     with multiprocessing.Pool(4) as pool:
         while True:            

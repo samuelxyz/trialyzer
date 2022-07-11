@@ -8,10 +8,10 @@ from typing import Container, Iterable, Sequence
 from layout import Layout
 from fingermap import Pos, Row
 
-def cycle(keys: Sequence[str]):
+def cycle(*args: tuple[str]):
     remap = Remap()
-    for i in range(len(keys)):
-        remap[keys[i]] = keys[(i + 1) % len(keys)]
+    for i in range(len(args)):
+        remap[args[i]] = args[(i + 1) % len(args)]
     return remap
 
 swap = cycle
@@ -158,9 +158,9 @@ class Remap(dict):
                 descriptions.append(f"set_swap(({', '.join(repr(c) for c in src)}), " 
                     f"({', '.join(repr(c) for c in dest)}))")
             else:
-                descriptions.append(f"swap(({repr(src[0])}, {repr(dest[0])}))")
+                descriptions.append(f"swap({repr(src[0])}, {repr(dest[0])})")
         for cycle_ in cycles:
-            descriptions.append(f"cycle(({', '.join(repr(c) for c in cycle_)}))")
+            descriptions.append(f"cycle({', '.join(repr(c) for c in cycle_)})")
 
         return " + ".join(descriptions)
 

@@ -73,7 +73,7 @@ class Constraintmap:
                     and first_freq < self.caps.get(pos, 1.0) 
                     and key_freqs[key] < first_cap
             ))
-        return remap.swap((first_key, random.choice(destinations)))
+        return remap.swap(first_key, random.choice(destinations))
 
 def get_constraintmap(name: str) -> Constraintmap:
     if name not in Constraintmap.loaded:
