@@ -1,13 +1,10 @@
 # Entry point for the trialyzer application
 # Contains main user interface and analysis features
 
-from audioop import lin2adpcm
-from codecs import latin_1_decode
 from collections import defaultdict
 import csv
 import curses
 import curses.textpad
-import enum
 import itertools
 import json
 import math
