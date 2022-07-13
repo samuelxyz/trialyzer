@@ -1669,7 +1669,8 @@ def main(stdscr: curses.window):
             "si [layout name] [n] [pin <keys>]: "
                 "Shuffle and run steepest ascent n times, saving the best",
             "anneal [layout name] [n] [pin <keys>]: "
-                "Optimize with simulated annealing"
+                "Optimize with simulated annealing",
+            "su[ggest] [pin <keys>]: Get suggestions for swaps and cycles",
         ]
         ymax = right_pane.getmaxyx()[0]
         for line in help_text:
@@ -2159,6 +2160,120 @@ def main(stdscr: curses.window):
 
         right_pane.refresh()
 
+    def cmd_suggest():
+        pins = set(analysis_target.get_board_keys()[0].values())
+        if "pin" in args:
+            while True:
+                token = args.pop()
+                if token == "pin":
+                    break
+                else:
+                    pins.add(token)
+        swappable = set(analysis_target.keys.values())
+        for key in pins:
+            swappable.discard(key)
+
+        message("Crunching the numbers... >>>", gui_util.green)
+        
+        # Setup
+        speed_func = typingdata_.tristroke_speed_calculator(analysis_target)
+        speed_dict = {ts: speed_func(ts) for ts in analysis_target.all_nstrokes()}
+        total_count, known_count, total_time = layout_speed_raw(
+            analysis_target, typingdata_, corpus_settings
+        )
+
+        lfreqs = analysis_target.get_corpus(corpus_settings).key_counts.copy()
+        total_lcount = sum(lfreqs[key] for key in analysis_target.positions
+            if key in lfreqs)
+        for key in lfreqs:
+            lfreqs[key] /= total_lcount
+
+        unused_keys = set(key for key in analysis_target.positions 
+        if key not in lfreqs or not bool(lfreqs[key]))
+
+        current_score = total_time / total_count
+
+        # Processing
+        rows = tuple({pos.row for pos in analysis_target.keys})
+        cols = tuple({pos.col for pos in analysis_target.keys})
+        swaps = tuple(remap.swap(*pair) 
+            for pair in itertools.combinations(swappable, 2))
+        trigram_counts = analysis_target.get_corpus(corpus_settings).trigram_counts
+        row_swaps = (remap.row_swap(analysis_target, r1, r2, pins) 
+            for r1, r2 in itertools.combinations(rows, 2))
+        col_swaps = (remap.col_swap(analysis_target, c1, c2, pins) 
+            for c1, c2 in itertools.combinations(cols, 2))
+        remap_args = (
+            (remap, total_count, known_count, total_time, analysis_target,
+                trigram_counts, speed_dict, unused_keys)
+            for remap in itertools.chain(swaps, row_swaps, col_swaps)
+            if bool(remap) and
+                active_constraintmap.is_remap_legal(analysis_target, lfreqs, remap))
+        with multiprocessing.Pool(4) as pool, \
+                layout.make_picklable(analysis_target) as _:
+            datas = pool.starmap(remapped_score, remap_args, 200)
+        datas = sorted(datas, key=lambda d: d[2]/d[0])[:10]
+
+        # Formatting
+        display = {}
+        col_settings = [
+            {"worst": gui_util.extreme, "best": gui_util.neg_extreme},
+            {"worst": gui_util.extreme, "best": gui_util.neg_extreme},
+            None,
+            {"worst": gui_util.extreme, "best": gui_util.neg_extreme},
+            None,
+        ]
+        for entry in datas:
+            remap_name = str(entry[3])
+            deltas = per_ngram_deltas(entry[3], analysis_target, trigram_counts, 
+                speed_func, unused_keys)
+            if not deltas:
+                continue
+            best, db = min(deltas.items(), key=lambda k: k[1][2])
+            worst, dw = max(deltas.items(), key=lambda k: k[1][2])
+            display[remap_name] = (
+                entry[2]/entry[0] - current_score,
+                db[2]/total_count, " ".join(best),
+                dw[2]/total_count, " ".join(worst),
+            )
+        colors = gui_util.apply_scales(display, col_settings)
+
+        # Display    
+        message(f"\nSuggested edits for {analysis_target}", win=right_pane)
+        widths = [
+            max(len(remap_name) for remap_name in display),
+            max(len(row[2]) for row in display.values()),
+        ]
+        row = right_pane.getmaxyx()[0] - 1
+        right_pane.scroll(1)
+        right_pane.addstr(row, 0, "Score   Remap", 0)
+        right_pane.addstr(row, 11 + widths[0], "Most improved", 0)
+        right_pane.addstr(row, 22 + widths[0] + widths[1], "Most worsened", 0)
+
+        for rowname, vals in display.items():
+            try:
+                col = 0
+                right_pane.scroll(1)
+                right_pane.addstr(row, col, f"{vals[0]:+5.4f}", 
+                    colors[0][rowname])
+                col += 8
+                right_pane.addstr(row, col, rowname, 0)
+                col += widths[0] + 3
+                right_pane.addstr(row, col, f"{vals[1]:+5.4f}", 
+                    colors[1][rowname])
+                col += 8
+                right_pane.addstr(row, col, vals[2], 0)
+                col += widths[1] + 3
+                right_pane.addstr(row, col, f"{vals[3]:+5.4f}", 
+                    colors[3][rowname])
+                col += 8
+                right_pane.addstr(row, col, vals[4], 0)
+            except curses.error:
+                continue
+
+        right_pane.refresh()
+
+
     def cmd_reload():
         if args:
             layout_name = " ".join(args)
@@ -2390,6 +2505,8 @@ def main(stdscr: curses.window):
                 cmd_tgc_diff()
             elif command == "diff":
                 cmd_diff()
+            elif command in ("su, suggest"):
+                cmd_suggest()
             elif command == "reload":
                 cmd_reload()
             elif command == "draw":
@@ -2903,7 +3020,8 @@ def steepest_ascent(layout_: layout.Layout, typingdata_: TypingData,
     scores = [total_time/total_count]
     rows = tuple({pos.row for pos in lay.keys})
     cols = tuple({pos.col for pos in lay.keys})
-    swaps = tuple(remap.swap(*pair) for pair in itertools.combinations(swappable, 2))
+    swaps = tuple(remap.swap(*pair) 
+        for pair in itertools.combinations(swappable, 2))
     trigram_counts = lay.get_corpus(corpus_settings).trigram_counts
     with multiprocessing.Pool(4) as pool:
         while True:            
@@ -2939,7 +3057,6 @@ def remapped_score(
         lay: layout.Layout, trigram_counts: dict, 
         speed_func: typing.Union[Callable, dict], 
         exclude_keys: Collection[str] = ()):
-    # swaps should be length 2
     """(total_count, known_count, total_time, remap)"""
     
     for ngram in lay.ngrams_with_any_of(remap_, exclude_keys=exclude_keys):
@@ -2971,6 +3088,54 @@ def remapped_score(
         total_count += tcount
     
     return (total_count, known_count, total_time, remap_)
+
+def per_ngram_deltas(
+        remap_: Remap, 
+        lay: layout.Layout, trigram_counts: dict, 
+        speed_func: typing.Union[Callable, dict], 
+        exclude_keys: Collection[str] = ()):
+    """Calculates the stat deltas by ngram for the given remap. 
+    Returns {ngram: delta_total_count, delta_known_count, delta_total_time}
+    """
+
+    result = {}
+
+    for ngram in lay.ngrams_with_any_of(remap_, exclude_keys=exclude_keys):
+        # deltas for the ngram
+        known_count = 0
+        total_time = 0
+        total_count = 0
+
+        try:
+            tcount = trigram_counts[ngram]
+        except KeyError: # contains key not in corpus
+            continue
+        
+        # remove effect of original tristroke
+        ts = lay.to_nstroke(ngram)
+        try:
+            speed, is_known = speed_func(ts)
+        except TypeError:
+            speed, is_known = speed_func[ts]
+        if is_known:
+            known_count -= tcount
+        total_time -= speed * tcount
+        total_count -= tcount
+        
+        # add effect of swapped tristroke
+        ts = lay.to_nstroke(remap_.translate(ngram))
+        try:
+            speed, is_known = speed_func(ts)
+        except TypeError:
+            speed, is_known = speed_func[ts]
+        if is_known:
+            known_count += tcount
+        total_time += speed * tcount
+        total_count += tcount
+
+        result[ngram] = (total_count, known_count, total_time)
+    
+    return result
 
 def anneal(layout_: layout.Layout, typingdata_: TypingData,
         corpus_settings: dict, constraintmap_: Constraintmap,

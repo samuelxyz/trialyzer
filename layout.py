@@ -4,6 +4,7 @@ from typing import Collection, Iterable, Dict, Tuple, Callable
 import threading
 import random
 import functools
+import contextlib
 
 import board
 import fingermap
@@ -328,6 +329,16 @@ def get_layout(name: str) -> Layout:
 
 def _calculate_counts_wrapper(*args: Layout):
     args[0].calculate_category_counts()
+
+@contextlib.contextmanager
+def make_picklable(layout_: Layout):
+    preprocessors = layout_.preprocessors
+    layout_.preprocessors = {}
+    try:
+        yield layout_
+    finally:
+        layout_.preprocessors = preprocessors
+    
 
 # for testing
 if __name__ == "__main__":
