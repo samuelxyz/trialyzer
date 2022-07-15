@@ -592,7 +592,7 @@ def main(stdscr: curses.window):
         except KeyError:
             try:
                 tristroke = user_layout.to_nstroke(tuple(
-                    undisplay_name(key) for key in trigram))
+                    undisplay_name(key, corpus_settings) for key in trigram))
             except KeyError:
                 message("That trigram does not exist in the user layout",
                     gui_util.red)
@@ -2663,14 +2663,14 @@ def trigrams_with_specifications_raw(
     speed_calc =  typingdata_.tristroke_speed_calculator(layout_)
     for trigram, count in layout_.get_corpus(
             corpus_settings).trigram_counts.items():
-        if (with_keys.isdisjoint(trigram) 
-                or not without_keys.isdisjoint(trigram)):
-            continue
         try:
             tristroke = layout_.to_nstroke(trigram)
         except KeyError:
             continue
         total_count += count
+        if (with_keys.isdisjoint(trigram) 
+                or not without_keys.isdisjoint(trigram)):
+            continue
         if (with_fingers.isdisjoint(tristroke.fingers)
                 or not without_fingers.isdisjoint(tristroke.fingers)):
             continue
