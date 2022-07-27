@@ -1668,6 +1668,10 @@ def main(stdscr: curses.window):
             "anneal [layout name] [n] [pin <keys>]: "
                 "Optimize with simulated annealing",
             "su[ggest] [pin <keys>]: Get suggestions for swaps and cycles",
+            "swap <key1> <key2>: Swap two keys",
+            "swap <key1> [key2 ...] with <key3> [key4 ...]: Swap many keys",
+            "cycle <key1> <key2> [key3 ...]: Cycle keys",
+            "save [custom name]: Save edited layout",
         ]
         ymax = right_pane.getmaxyx()[0]
         for line in help_text:
@@ -2270,6 +2274,69 @@ def main(stdscr: curses.window):
 
         right_pane.refresh()
 
+    def cmd_swap():
+        """Usage: swap <key1> <key2>
+        Or: swap <key1> [key2 ...] with <key3> [key4 ...]"""
+
+        if len(args) < 2:
+            message("Usage: swap <key1> <key2>\n"
+                "Or: swap <key1> [key2 ...] with <key3> [key4 ...]",
+                gui_util.red)
+        elif len(args) == 2:
+            edit_layout_main(remap.cycle(*args))
+        elif "with" in args:
+            split_index = args.index("with")
+            groups = (args[:split_index], args[split_index+1:])
+            if len(groups[0]) != len(groups[1]):
+                message("Cannot swap an unequal number of keys", gui_util.red)
+            edit_layout_main(remap.set_swap(*groups))
+        else:
+            message("Too many keys entered - use 'with'"
+                " to separate into two groups", gui_util.red)
+
+    def cmd_cycle():
+        """Usage: cycle <key1> <key2> [key3 ...]"""
+
+        if len(args) < 2:
+            message("Usage: cycle <key1> <key2> [key3 ...]", gui_util.red)
+        else:
+            edit_layout_main(remap.cycle(*args))
+
+    def edit_layout_main(remap_: Remap):
+        nonlocal analysis_target
+        for key in remap_:
+            if key not in analysis_target.keys.values():
+                message(f"Key '{key}' is not in {analysis_target.name}",
+                        gui_util.red)
+                return
+        if analysis_target.is_saved():
+            analysis_target = layout.Layout(
+                find_free_filename(f"{analysis_target.name}-edited"), 
+                repr_=repr(analysis_target)
+            )
+            message("Created new layout with temporary name "
+                f"{analysis_target.name}", gui_util.green)
+            message("Remember to save if you want to keep this",
+                gui_util.green)
+        analysis_target.remap(remap_)
+        args.clear()
+        cmd_layout()
+
+    def cmd_save():
+        old_name = analysis_target.name
+        if args:
+            analysis_target.name = " ".join(args)
+        if analysis_target.is_saved():
+            message("A layout named {analysis_target.name} "
+                "already exists. Overwrite? (y/n)", gui_util.red)
+            if get_input().strip().lower() != "y":
+                analysis_target.name = old_name
+                return
+        with open(f"layouts/{analysis_target.name}", "w") as file:
+            file.write(repr(analysis_target))
+        if analysis_target not in layout.Layout.loaded:
+            layout.Layout.loaded[analysis_target.name] = analysis_target
+        message(f"Saved as layouts/{analysis_target.name}", gui_util.green)
 
     def cmd_reload():
         if args:
@@ -2504,6 +2571,12 @@ def main(stdscr: curses.window):
                 cmd_diff()
             elif command in ("su, suggest"):
                 cmd_suggest()
+            elif command == "swap":
+                cmd_swap()
+            elif command == "cycle":
+                cmd_cycle()
+            elif command == "save":
+                cmd_save()
             elif command == "reload":
                 cmd_reload()
             elif command == "draw":

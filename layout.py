@@ -1,5 +1,6 @@
 import itertools
 import json
+import os
 from typing import Collection, Iterable, Dict, Tuple, Callable
 import threading
 import random
@@ -321,6 +322,12 @@ class Layout:
             self.repeat_key,
             settings["precision"]
         )
+
+    def is_saved(self) -> bool:
+        return os.path.exists(f"layouts/{self.name}")
+        # check repr? I don't think there should ever be a situation 
+        # where self differs from what's in the file
+        # So this should be fine for now
 
 def get_layout(name: str) -> Layout:
     if name not in Layout.loaded:
