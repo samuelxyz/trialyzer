@@ -19,7 +19,7 @@ Usage:
     - A pretty big terminal window is needed for certain features. If you get a curses error, you may have to increase your window size and/or decrease font size.
 
 Features:
-- Layout analysis and comparison, based on typing data provided by and personally applicable to you
+- Layout analysis, comparison, and editing, based on typing data provided by and personally applicable to you
 - A large variety of bigram and trigram statistics, accounting for both frequency and your measured ease of typing each
 - Autosuggest trigrams to use in the typing test to most effectively characterize a layout's common finger movements
 - Estimate the physical typing speed limit of each layout based on your typing data
@@ -27,12 +27,12 @@ Features:
 - Draw layout heatmaps using a large variety of different statistics
 - Custom layouts, fingermaps, and even physical board definitions can be added in files
 - Layout optimization by simulated annealing and steepest ascent, with key pinning and usage constraints
-- Load arbitrary corpora with rules for shift and space
+- Load arbitrary text corpora with rules for shift and space keys
 
 Planned:
-- Further generation/optimization tools including swap suggestions, interactive layout editor, etc
+- Further generation/optimization tools
 - More fingermaps, boards, layouts
-- Alt fingering and sliding, dynamic keys
+- Alt fingering and sliding, dynamic keys, layers
 
 ## What makes trialyzer special?
 
@@ -52,7 +52,7 @@ Other analyzers take same finger bigrams, skipgrams, rolls, and all those other 
 
 Despite only having one main statistic, we don't give up up the granularity of all those more specific stats. In fact, with all this data, we actually obtain *more* insight into, for example, exactly how bad each different sfb is, and how much they slow you down compared to the average non-sfb. Trialyzer contains tools to calculate and display these statistics.
 
-Of course, this approach comes with some limitations and drawbacks. 
+Of course, this approach comes with some limitations and drawbacks: 
 
 - Speed is an objective measurement, but is it a good heuristic for comfort? It makes sense that they would be correlated, especially considering the results that have come out of the fingerspeed metric, but comfort is notoriously difficult to quantify. 
     - For example, you might be able to type a lateral stretch bigram quickly, but that doesn't mean it's comfortable. 
