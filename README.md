@@ -96,7 +96,7 @@ For much more terminology and detail, see the [wiki](https://github.com/samuelxy
 
 After typing a few thousand trigrams, I had enough typing data to gather some interesting observations.
 
-[Trigram speeds plot](https://media.discordapp.net/attachments/798600991221219340/1028750494199468162/medians-2.png)
+![Trigram speeds plot](https://media.discordapp.net/attachments/798600991221219340/1028750494199468162/medians-2.png)
 
 In this plot, each point represents the median speed of one trigram, broken down into bigram parts (`the` breaks down into `th` and `he`, which don't necessarily take the same amount of time each). The speeds of the faster and slower parts determine the position of the point on the vertical and horizontal axes. So, faster overall trigrams are to the lower left, and "metronome" trigrams where both bigram parts are the same speed would fall on the main diagonal.
 
