@@ -89,3 +89,53 @@ A sequence of physical key locations on the board, each associated with the fing
 (Note: Different fingermap-board combinations may have some tristrokes in common; for instance, all tristrokes involving the top and home row are identical between `traditional`-`ansi` and `iso_angle`-`iso`. Moreover, though the right hand is in a different position in `iso_angle` versus `iso_angle_wide`, the shape of each tristroke on the right hand is identical. Trialyzer accounts for these commonalities, and allows the relevant typing speed data to be shared between different boards and fingermaps.)
 
 For much more terminology and detail, see the [wiki](https://github.com/samuelxyz/trialyzer/wiki)!
+
+# Some results
+
+## General results
+
+After typing a few thousand trigrams, I had enough typing data to gather some interesting observations.
+
+[Trigram speeds plot](https://media.discordapp.net/attachments/798600991221219340/1028750494199468162/medians-2.png)
+
+In this plot, each point represents the median speed of one trigram, broken down into bigram parts (`the` breaks down into `th` and `he`, which don't necessarily take the same amount of time each). The speeds of the faster and slower parts determine the position of the point on the vertical and horizontal axes. So, faster overall trigrams are to the lower left, and "metronome" trigrams where both bigram parts are the same speed would fall on the main diagonal.
+
+The full explanation of trigram categories is [here](https://github.com/samuelxyz/trialyzer/wiki/Nstroke-categories). Note that some categories have been lumped together, to avoid cluttering the plot with too many minor categories.
+
+First, this data seems to confirm the popular opinion that 2-1 or 1-2 rolls are faster than full alternating trigrams. It also raises other observations that are more interesting.
+
+Notably, redirects are highly variable. There are some very fast ones, and a few very slow ones. The fastest redirects can even be faster than most rolls, while a few slow ones are even worse than SFBs. Consider: QWERTY's `xad` is terrible, but `joi` is actually quite fast and comfortable. This variation stands opposed to the popular opinion that redirects are uniformly worse than alternation, though it should be kept in mind that I can only measure speed, not comfort.
+
+DSFBs (labeled as "sfs" in the plot) are faster than SFBs, but not twice as fast. They might merit a heavier weighting than the traditional SFB/2. 
+
+Using these measurements as weights for every individual trigram, my analyzer displays some very interesting preferences. It regularly spits out layouts with high rolls and redirects, while maintaining low sfb and very low (near Semimak level) dsfb. It nearly always produces home rows containing at least one lower-frequency letter - most often `c` or `l`. Some of its behavior sketches me out (strange finger usage, off-home pinky redirects etc), but that's to be expected when it's using weightings concerned with pure trigram speeds and nothing else. I generally wouldn't recommend using these layouts exactly as produced without any tweaking, but they are certainly thought-provoking.
+
+## Thoughts on same finger skipgrams
+
+![Table of trigram categories](https://i.imgur.com/OWzD7JY.png)
+
+This is a table of trigram categories. For this section, we are interested in the `sfs` subcategories, which is my name for a DSFB in trigram form. `sfs.alt` is an alternating DSFB, the others are various forms of same-hand DSFBs.
+
+- The `ms` column indicates the average number of milliseconds it took me to type a trigram of that category. Lower is faster. Note that for each trigram, I typed many trials of it and kept the median time. So, each number in the `ms` column is an average of those medians.
+
+- The `n` column indicates how many distinct trigrams of that category I have typed. The last column indicates how many are possible on the keyboard (at least, when including the keys that I have set up the code for). These two together indicate a sort of completion score, how confident you should be in the `ms` score of a particular trigram category.
+
+We can see that `sfs.alt` is indeed faster than the same-hand `sfs` categories. However, note that even `sfs.alt` is substantially worse than your average redirect or alternating trigram, and much worse than rolls. In fact, `sfs` overall is the worst trigram category that doesn't contain consecutive same-finger use, by quite a wide margin.
+
+DSFB is slightly less bad when it's alternating, but even then it's still a significant issue. 
+
+Next, let's apply those speeds to a real layout, in this case Colemak.
+
+![Example analysis](https://i.imgur.com/iAunwco.png)
+
+The main thing that has happened here is that we have taken our median time for each trigram, and weighted it by the frequency of that trigram in the corpus (in this case, the typeracer quotes corpus). Some of the more detailed categories have been hidden for brevity, but we still have our main `sfs` categories visible.
+
+- The `freq` column shows the total frequency of each trigram category in the corpus.
+
+- the `exact` column shows the proportion of trigrams in each category (weighted by frequency of each individual trigram) that have exact speed data recorded. The rest have their speeds estimated from existing data by various means. You can think of this as a *lower bound* on how confident the analyzer is about the values in the next two columns. In my experience, once this score passes about 10%, the analyzer's extrapolations for unknown trigrams tend to be surprisingly accurate.
+
+- The `avg_ms` column lists the average number of milliseconds taken to type a trigram of each category, weighted by frequency of each trigram within the category. You can think of this as a score describing how slow each category tends to be.
+
+- The `ms` column is `avg_ms` weighted by the frequency of each category in the corpus. You can think of this as a score describing how much each category contributes to the whole layout's overall typing slowness.
+
+Looking at the `avg_ms` column, we see that the typical `sfs` is worse than any non-same-finger, non-scissoring trigram. Worse than alternating, rolling, and redirecting trigrams. Looking at the `ms` column, we see that it also impacts the total typing time *more* than redirects. It also has more impact than trigrams containing sfbs. This makes sense because it's much more difficult to minimize dsfb than sfb, so there is substantially more dsfb in most layouts, Colemak included. So, decreasing dsfb may be a substantial opportunity to improve a layout's performance overall.
