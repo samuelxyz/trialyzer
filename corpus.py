@@ -87,7 +87,9 @@ class Corpus:
                  precision: int = 500, 
                  repeat_key: str = "",
                  json_dict: dict = None, other: Type["Corpus"] = None) -> None:
-        """shift_policy can be "once" or "each". "once" means that when 
+        """To disable a key, set it to "".
+
+        shift_policy can be "once" or "each". "once" means that when 
         consecutive capital letters occur, shift is only pressed once before 
         the first letter. "each" means shift is pressed before each letter.
         """
