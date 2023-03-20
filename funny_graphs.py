@@ -1,15 +1,13 @@
 # This one uses matplotlib
 
-from typing import Sequence, Callable, Container
-import itertools
+from typing import Callable, Container
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 import typingdata
 import layout
-from board import Coord
-from nstroke import Tristroke, Finger
+from nstroke import describe_tristroke
 
 td = typingdata.TypingData("tanamr")
 all_known = td.exact_tristrokes_for_layout(layout.get_layout("qwerty"))
@@ -20,140 +18,6 @@ def get_medians_of_tristroke_category(conditions: Callable[[Container[str]], boo
         if conditions(describe_tristroke(ts)):
             totals.append(td.tri_medians[ts][2])
     return totals
-
-def describe_tristroke(ts: Tristroke): 
-    tags = set()
-    if Finger.UNKNOWN in ts.fingers:
-        return ("unknown",)
-    
-    def bifinger_category(fingers: Sequence[Finger], coords: Sequence[Coord]):
-        if Finger.UNKNOWN in fingers:
-            return "unknown"
-        if (fingers[0] > 0) != (fingers[1] > 0):
-            return "alt"
-        delta = abs(fingers[1]) - abs(fingers[0])
-        if delta == 0:
-            return "sfr" if coords[1] == coords[0] else "sfb"
-        else:
-            return "out" if delta > 0 else "in"
-
-    def detect_scissor(i: int, j: int):
-        HALF_SCISSOR_THRESHOLD = 0.5
-        FULL_SCISSOR_THRESHOLD = 1.5
-
-        if (ts.fingers[i] > 0) != (ts.fingers[j] > 0):
-            return ()
-        if abs(ts.fingers[i] - ts.fingers[j]) != 1:
-            return ()
-        dy = ts.coords[i].y - ts.coords[j].y
-        if abs(dy) < HALF_SCISSOR_THRESHOLD:
-            return ()
-        lower = j if dy > 0 else i
-        if ts.fingers[lower].name[1] == "P" and abs(dy) > FULL_SCISSOR_THRESHOLD:
-            return ("fsb",)
-        if ts.fingers[lower].name[1] not in ("M", "R"):
-            return ()
-        if abs(dy) < FULL_SCISSOR_THRESHOLD:
-            return ("hsb",)
-        return ("fsb",)
-    
-    def detect_lateral_stretch(i: int, j: int):
-        """Must be adjacent fingers and not thumb."""
-        LATERAL_STRETCH_THRESHOLD = 2.0
-
-        if (ts.fingers[i] > 0) != (ts.fingers[j] > 0):
-            return False
-        if abs(ts.fingers[i] - ts.fingers[j]) != 1:
-            return False
-        if abs(ts.fingers[i]) == 1 or abs(ts.fingers[j]) == 1:
-            return False
-        if abs(ts.coords[i].x - ts.coords[j].x) < LATERAL_STRETCH_THRESHOLD:
-            return False
-        return True
-    
-    def detect_row_change(i: int, j: int):
-        """Must be same hand and not same finger."""
-        ROW_CHANGE_THRESHOLD = 0.5
-        if (ts.fingers[i] > 0) != (ts.fingers[j] > 0):
-            return False
-        if (ts.fingers[i] == ts.fingers[j]):
-            return False
-        if abs(ts.coords[i].y - ts.coords[j].y) < ROW_CHANGE_THRESHOLD:
-            return False
-        return True
-    
-    first, skip, second = map(
-        bifinger_category, 
-        itertools.combinations(ts.fingers, 2),
-        itertools.combinations(ts.coords, 2))
-    
-    if skip in ("sfb", "sfr"):
-        if first in ("sfb", "sfr"):
-            tags.add("sft")
-        else: 
-            tags.add("sfs")
-    elif first in ("sfb", "sfr"):
-        tags.add(first)
-        if second in ("in", "out"):
-            tags.add(second)
-    elif second in ("sfb", "sfr"):
-        tags.add(second)
-        if first in ("in", "out"):
-            tags.add(first)
-    
-    if skip == "alt":
-        if "sfb" not in (first, second) and "sfr" not in (first, second):
-            tags.add("tutu")
-            if "in" in (first, second):
-                tags.add("in")
-            else:
-                tags.add("out")
-        else:
-            tags.add("hand-change")
-    else:
-        if first in ("in, out") and second in ("in, out"):
-            if first == second:
-                tags.add("rolll")
-                tags.add(first)
-            else:
-                tags.add("redir")
-                if Finger.LI not in ts.fingers and Finger.RI not in ts.fingers:
-                    tags.add("bad-redir")
-                tags.add("first-"+first)
-                if skip in ("in", "out"):
-                    tags.add("skip-"+skip)
-        elif first == "alt" and second == "alt":
-            tags.add("alt") # includes sfs
-            if skip in ("in", "out"):
-                tags.add("skip-"+skip) # inward and outward alternation
-        # else it's sfb or sfr
-    
-    tags.update(detect_scissor(0, 1))
-    tags.update(detect_scissor(1, 2))
-    ss = detect_scissor(0, 2)
-    if ss:
-        if "hsb" in ss:
-            tags.add("hss")
-        else:
-            tags.add("fss")
-    
-    if detect_lateral_stretch(0, 1) or detect_lateral_stretch(1, 2):
-        tags.add("lsb")
-    if detect_lateral_stretch(0, 2):
-        tags.add("lss")
-    
-    if detect_row_change(0, 1) or detect_row_change(1, 2):
-        tags.add("rcb")
-    if detect_row_change(0, 2):
-        tags.add("rcs")
-
-    if Finger.LT in ts.fingers or Finger.RT in ts.fingers:
-        tags.add("thumb")
-
-    if abs(ts.fingers[1]) == 1:
-        tags.add("middle-thumb")
-
-    return tags
 
 fig, ax = plt.subplots()
 categories = {
