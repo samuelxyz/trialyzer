@@ -61,8 +61,12 @@ categories = {
     # "end thumb\nredir": lambda tags: "redir" in tags and "middle-thumb" not in tags and "thumb" in tags,    
     # "redir without\nthumb": lambda tags: "redir" in tags and "thumb" not in tags,
 
-    "redir\nno thumb\nno scissor": lambda tags: "redir" in tags and "thumb" not in tags and "hsb" not in tags and "fsb" not in tags and "hss" not in tags and "fss" not in tags,
-    "redir\nno thumb\nsome scissor": lambda tags: "redir" in tags and "thumb" not in tags and not("hsb" not in tags and "fsb" not in tags and "hss" not in tags and "fss" not in tags),
+    # "redir\nno thumb\nno scissor": lambda tags: "redir" in tags and "thumb" not in tags and "hsb" not in tags and "fsb" not in tags and "hss" not in tags and "fss" not in tags,
+    # "redir\nno thumb\nsome scissor": lambda tags: "redir" in tags and "thumb" not in tags and not("hsb" not in tags and "fsb" not in tags and "hss" not in tags and "fss" not in tags),
+    "non bad redir\nthumb": lambda tags: "redir" in tags and "bad-redir" not in tags and "thumb" in tags,
+    "bad redir\nthumb": lambda tags: "bad-redir" in tags and "thumb" in tags,
+    "non bad redir\nno thumb": lambda tags: "redir" in tags and "bad-redir" not in tags and "thumb" not in tags,
+    "bad redir\nno thumb": lambda tags: "bad-redir" in tags and "thumb" not in tags,
 }
 datas = [np.array(get_medians_of_tristroke_category(func)) for func in categories.values()]
 ax.violinplot(datas, showmedians=True, quantiles=[[0.25, 0.75] for _ in datas])

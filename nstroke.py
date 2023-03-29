@@ -240,6 +240,32 @@ def detect_scissor_any(tristroke: Tristroke):
     
 
 def describe_tristroke(ts: Tristroke): 
+    """
+All tags always appear if they apply, except where noted with "Only for ...".
+
+Tags considering whole trigram:
+- sft
+- sfb (contains sfb, not sft)
+- sfr (contains sfr, not sft)
+- sfs (not sft)
+- fsb (contains fsb)
+- hsb (contains hsb)
+- hand-change (reflecting one bigram of sfb. Only for sfb)
+- in, out (reflecting one bigram of sfb, sfr, tutu; or both bigrams of rolll. Only for those)
+- tutu
+- alt
+- rolll
+- redir
+- bad-redir (Only for redir)
+
+Tags considering bigrams:
+- (first, second)-(in, out, sfb, sfr, fsb, hsb, lsb, rcb)
+- skip-(in, out)
+- fss (contains fss)
+- hss (contains hss)
+- rcs (contains rcs)
+    """
+
     tags = set()
     if Finger.UNKNOWN in ts.fingers:
         return ("unknown",)
@@ -260,20 +286,20 @@ def describe_tristroke(ts: Tristroke):
         FULL_SCISSOR_THRESHOLD = 1.5
 
         if (ts.fingers[i] > 0) != (ts.fingers[j] > 0):
-            return ()
+            return False
         if abs(ts.fingers[i] - ts.fingers[j]) != 1:
-            return ()
+            return False
         dy = ts.coords[i].y - ts.coords[j].y
         if abs(dy) < HALF_SCISSOR_THRESHOLD:
-            return ()
+            return False
         lower = j if dy > 0 else i
         if ts.fingers[lower].name[1] == "P" and abs(dy) > FULL_SCISSOR_THRESHOLD:
-            return ("fsb",)
+            return "fsb"
         if ts.fingers[lower].name[1] not in ("M", "R"):
-            return ()
+            return False
         if abs(dy) < FULL_SCISSOR_THRESHOLD:
-            return ("hsb",)
-        return ("fsb",)
+            return "hsb"
+        return "fsb"
     
     def detect_lateral_stretch(i: int, j: int):
         """Must be adjacent fingers and not thumb."""
@@ -304,6 +330,11 @@ def describe_tristroke(ts: Tristroke):
         bifinger_category, 
         itertools.combinations(ts.fingers, 2),
         itertools.combinations(ts.coords, 2))
+    
+    tags.add(f"first-{first}")
+    tags.add(f"second-{second}")
+    if skip in ("in", "out"):
+        tags.add(f"skip-{skip}")
     
     if skip in ("sfb", "sfr"):
         if first in ("sfb", "sfr"):
@@ -337,30 +368,36 @@ def describe_tristroke(ts: Tristroke):
                 tags.add("redir")
                 if Finger.LI not in ts.fingers and Finger.RI not in ts.fingers:
                     tags.add("bad-redir")
-                tags.add("first-"+first)
-                if skip in ("in", "out"):
-                    tags.add("skip-"+skip)
         elif first == "alt" and second == "alt":
             tags.add("alt") # includes sfs
-            if skip in ("in", "out"):
-                tags.add("skip-"+skip) # inward and outward alternation
         # else it's sfb or sfr
     
-    tags.update(detect_scissor(0, 1))
-    tags.update(detect_scissor(1, 2))
-    ss = detect_scissor(0, 2)
-    if ss:
+    if (s1 := detect_scissor(0, 1)):
+        tags.add(s1)
+        tags.add(f"first-{s1}")
+    if (s2 := detect_scissor(1, 2)):
+        tags.add(s2)
+        tags.add(f"second-{s2}")    
+    if (ss := detect_scissor(0, 2)):
         if "hsb" in ss:
             tags.add("hss")
         else:
             tags.add("fss")
     
-    if detect_lateral_stretch(0, 1) or detect_lateral_stretch(1, 2):
+    if detect_lateral_stretch(0, 1):
+        tags.add("first-lsb")
+        tags.add("lsb")
+    if detect_lateral_stretch(1, 2):
+        tags.add("second-lsb")
         tags.add("lsb")
     if detect_lateral_stretch(0, 2):
         tags.add("lss")
     
-    if detect_row_change(0, 1) or detect_row_change(1, 2):
+    if detect_row_change(0, 1):
+        tags.add("first-rcb")
+        tags.add("rcb")
+    if detect_row_change(1, 2):
+        tags.add("second-rcb")
         tags.add("rcb")
     if detect_row_change(0, 2):
         tags.add("rcs")
