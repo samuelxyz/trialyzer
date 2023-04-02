@@ -82,12 +82,13 @@ def main(stdscr: curses.window):
         if some_default:
             startup_messages.append((
                 "Set some missing/bad settings to default", gui_util.blue))
-    except (FileNotFoundError, KeyError):
+    except (FileNotFoundError, KeyError, json.decoder.JSONDecodeError):
         active_speeds_file = "default"
         analysis_target = layout.get_layout("qwerty")
         user_layout = layout.get_layout("qwerty")
         active_constraintmap = constraintmap.get_constraintmap(
             "traditional-default")
+        key_aliases = set()
         corpus_settings = {
             "filename": "tr_quotes.txt",
             "space_key": "space",

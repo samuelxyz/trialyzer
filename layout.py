@@ -10,6 +10,7 @@ import contextlib
 import board
 import fingermap
 import corpus
+import remap
 from nstroke import (
     all_tristroke_categories, Nstroke, applicable_function, tristroke_category
 )
@@ -273,7 +274,7 @@ class Layout:
             keys.discard(key)
         random.seed()
         for _ in range(swaps):
-            self.remap(random.sample(keys, k=2), False)
+            self.remap(remap.cycle(*random.sample(keys, k=2)), False)
         self.nstroke_cache.clear()
 
     def constrained_shuffle(self, shuffle_source: Callable, swaps: int = 100):

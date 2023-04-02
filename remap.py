@@ -3,10 +3,14 @@
 # and reversed using the - operator. Subtraction is also implemented but
 # I have no clue when you would ever use that.
 
+from __future__ import annotations
 from typing import Container, Iterable, Sequence
 
-from layout import Layout
-from fingermap import Pos, Row
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:    
+    from layout import Layout
+    from fingermap import Pos, Row
 
 def cycle(*args: tuple[str]):
     remap = Remap()
