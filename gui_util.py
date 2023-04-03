@@ -70,6 +70,8 @@ def apply_scales(rows: dict[str, Iterable], col_settings: Iterable[dict]):
     Columns whose col_settings entry is None, or nonexistent, will be skipped
     and the corresponding column in the output will be None or nonexistent
     respectively."""
+    if not rows:
+        return dict()
     pairs = [dict() for _ in col_settings]
     defaults = {"worst": min, "best": max, "scale_filter": lambda _: True, 
         "transform": lambda x: x, "exclude_zeros": True}
@@ -84,14 +86,18 @@ def apply_scales(rows: dict[str, Iterable], col_settings: Iterable[dict]):
             def zeros_filter(x): return x != 0
         else:
             def zeros_filter(_): return True
-        worst = settings["transform"](
-            settings["worst"](val[col] for val in rows.values()
-                if settings["scale_filter"](val[col])
-                and zeros_filter(val[col])))
-        best = settings["transform"](
-            settings["best"](val[col] for val in rows.values()
-                if settings["scale_filter"](val[col])
-                and zeros_filter(val[col])))
+        try:
+            worst = settings["transform"](
+                settings["worst"](val[col] for val in rows.values()
+                    if settings["scale_filter"](val[col])
+                    and zeros_filter(val[col])))
+            best = settings["transform"](
+                settings["best"](val[col] for val in rows.values()
+                    if settings["scale_filter"](val[col])
+                    and zeros_filter(val[col])))
+        except ValueError: # no valid values
+            worst = 0.0
+            best = 0.0
         for rowname in rows:
             pairs[col][rowname] = curses.color_pair(color_scale(
                 worst, best, settings["transform"](rows[rowname][col]),

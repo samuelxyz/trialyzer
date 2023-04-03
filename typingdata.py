@@ -250,7 +250,7 @@ class TypingData:
         # Assuming sfs is the limiting factor in a trigram, this may help fill
         # sfb speeds
         if not all_medians["sfb"]:
-            for tristroke in self.exact_tristrokes_for_layout():
+            for tristroke in self.exact_tristrokes_for_layout(layout_):
                 if nstroke.tristroke_category(tristroke).startswith("sfs"):
                     all_medians["sfb"].append(self.tri_medians[tristroke][2])
         

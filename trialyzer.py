@@ -776,9 +776,9 @@ def main(stdscr: curses.window):
             target_layout, typingdata_, corpus_settings)
         
         tri_ms = tri_stats[""][2]
-        tri_wpm = int(24000/tri_ms)
+        tri_wpm = int(24000/tri_ms) if tri_ms else 0.0
         bi_ms = bi_stats[""][2]
-        bi_wpm = int(12000/bi_ms)
+        bi_wpm = int(12000/bi_ms) if bi_ms else 0.0
 
         gui_util.insert_line_bottom(f"\nLayout: {target_layout}", right_pane)
         gui_util.insert_line_bottom(
