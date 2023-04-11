@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:    
     from layout import Layout
-    from fingermap import Pos, Row
+from fingermap import Pos, Row
 
 def cycle(*args: tuple[str]):
     remap = Remap()

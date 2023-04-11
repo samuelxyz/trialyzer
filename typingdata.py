@@ -149,7 +149,7 @@ class TypingData:
             data = (
                 statistics.median(speeds_01),
                 statistics.median(speeds_12),
-                statistics.median(speeds_02)
+                statistics.median(speeds_02)                
             )
             self.tri_medians[tristroke] = data
             return data
@@ -405,12 +405,21 @@ class TypingData:
                 result[cat][bs] = (mean, count)
         return result
 
-    def tristroke_speed_calculator(self, layout_: Layout):
+    def tristroke_speed_calculator(self, layout_: Layout, 
+                                   ms_floor = 60, stretch_point = 100, 
+                                   stretch_factor = 2):
         """Returns a function speed(ts) which determines the speed of the 
         tristroke ts. Uses data from medians if it exists; if not, uses 
         tribreakdowns as a fallback, and if that still fails then
         uses the average speed of the category from tricatdata.
         Caching is used for additional speed.
+
+        ms_floor provides a speed limiter to hopefully prevent the analyzer
+        from focusing so much on onehands.
+
+        stretch_point and stretch_factor specify a millisecond threshold
+        at which to start exaggerating further increases in ms. This
+        penalizes bad trigrams more heavily.
         
         The function returns (duration in ms, is_exact)"""
 
@@ -437,6 +446,12 @@ class TypingData:
                     speed += tribreakdowns[cat][bs2][0]
                 except KeyError: # Use general category speed
                     speed = tricatdata[cat][0]
-            return (speed, is_exact)
+            # return (speed, is_exact)
+            return (
+                max(speed, ms_floor, 
+                    (speed - stretch_point) * stretch_factor + stretch_point
+                ),
+                is_exact
+            )
 
         return speed_func

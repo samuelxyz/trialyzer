@@ -152,8 +152,8 @@ class Corpus:
                     line[i:i+3] for i in range(len(line)-2))
         
     def set_precision(self, precision: int | None):
-        if self.trigram_precision_total and precision == self.precision:
-            return
+        # if self.trigram_precision_total and precision == self.precision:
+        #     return
         if precision <= 0:
             self.precision = 0
             precision = len(self.top_trigrams)
@@ -164,6 +164,7 @@ class Corpus:
             for tg in self.top_trigrams)
         self.trigram_completeness = (self.trigram_precision_total / 
             self.trigram_counts.total())
+        self.filtered_trigram_counts = {t: self.trigram_counts[t] for t in self.top_trigrams}
 
     def _json_load(self, json_dict: dict):
         self.key_counts = Counter(json_dict["key_counts"])

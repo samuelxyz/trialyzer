@@ -1414,6 +1414,11 @@ def main(stdscr: curses.window):
         def shuffle_source():
             return active_constraintmap.random_legal_swap(
                 working_lay, lfreqs, pins)
+        
+        name = working_lay.name
+        if not name.endswith("-best"):
+            name += "-best"
+        name = find_free_filename(name)
 
         for iteration in range(num_iterations):
             working_lay.constrained_shuffle(shuffle_source)
@@ -1447,10 +1452,10 @@ def main(stdscr: curses.window):
             if optimized is not working_lay and score < best_score:
                 message(
                     f"New best score of {score:.4f}\n"
-                    f"Saved as layouts/{optimized.name}", 
+                    f"Saved as layouts/{name}", 
                     gui_util.green, right_pane)
                 best_score = score
-                with open(f"layouts/{optimized.name}", "w") as file:
+                with open(f"layouts/{name}", "w") as file:
                         file.write(repr_)
         message("\nSet best as analysis target",
             gui_util.green, right_pane)
@@ -1504,13 +1509,25 @@ def main(stdscr: curses.window):
         
         last_time = -1
         optimized = target_layout
+        convergence_chain = 0
+        convergence_epsilon = 0.01
+        convergence_threshold = 400
         for optimized, i, temperature, delta, score, remap_ in anneal(
             target_layout, typingdata_, corpus_settings, active_constraintmap,
             pins, "-annealed", num_iterations
         ):
+            if abs(delta) > convergence_epsilon:
+                convergence_chain = 0
+            else:
+                convergence_chain += 1
+            if convergence_chain > convergence_threshold:
+                message(f"Early convergence detected: "
+                        f"({convergence_threshold} steps with "
+                        f"delta < {convergence_epsilon})", win=right_pane)
+                break
             current_time = time.perf_counter()
             if current_time - last_time < 0.5:
-                continue
+                continue # dont spam the console by printing
             last_time = current_time
             repr_ = repr(optimized)
             message(
@@ -3093,7 +3110,7 @@ def steepest_ascent(layout_: layout.Layout, typingdata_: TypingData,
     cols = tuple({pos.col for pos in lay.keys})
     swaps = tuple(remap.swap(*pair) 
         for pair in itertools.combinations(swappable, 2))
-    trigram_counts = lay.get_corpus(corpus_settings).trigram_counts
+    trigram_counts = lay.get_corpus(corpus_settings).filtered_trigram_counts
     with multiprocessing.Pool(4) as pool:
         while True:            
             row_swaps = (remap.row_swap(lay, r1, r2, pins) 
@@ -3128,16 +3145,33 @@ def remapped_score(
         lay: layout.Layout, trigram_counts: dict, 
         speed_func: typing.Union[Callable, dict], 
         exclude_keys: Collection[str] = ()):
-    """(total_count, known_count, total_time, remap)"""
+    """
+    For extra performance, filter trigram_counts by corpus precision.
+
+    Returns:
+    (total_count, known_count, total_time, remap)"""
     
-    for ngram in lay.ngrams_with_any_of(remap_, exclude_keys=exclude_keys):
-        try:
-            tcount = trigram_counts[ngram]
-        except KeyError: # contains key not in corpus
+    # for ngram in lay.ngrams_with_any_of(remap_, exclude_keys=exclude_keys):
+    for ngram in trigram_counts: # probably faster
+        # try:
+        #     tcount = trigram_counts[ngram]
+        # except KeyError: # contains key not in corpus
+        #     continue
+        affected_by_remap = False
+        for key in ngram:
+            if key in remap_:
+                affected_by_remap = True
+                break
+        if not affected_by_remap:
             continue
         
+        try:
+            ts = lay.to_nstroke(ngram)
+        except KeyError: # key not in layout
+            continue
+        tcount = trigram_counts[ngram]
+
         # remove effect of original tristroke
-        ts = lay.to_nstroke(ngram)
         try:
             speed, is_known = speed_func(ts)
         except TypeError:
@@ -3260,7 +3294,7 @@ def anneal(layout_: layout.Layout, typingdata_: TypingData,
                     constraintmap_.is_remap_legal(lay, lfreqs, remap_)):
             remap_ = constraintmap_.random_legal_swap(lay, lfreqs, pins)
         data = remapped_score(remap_, total_count, known_count, total_time,
-            lay, corpus_.trigram_counts, speed_func, unused_keys)
+            lay, corpus_.filtered_trigram_counts, speed_func, unused_keys)
         score = data[2]/data[0]
         delta = score - scores[-1]
 

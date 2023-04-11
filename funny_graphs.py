@@ -10,7 +10,8 @@ import layout
 from nstroke import describe_tristroke
 
 td = typingdata.TypingData("tanamr")
-all_known = td.exact_tristrokes_for_layout(layout.get_layout("qwerty"))
+qwerty = layout.get_layout("qwerty")
+all_known = td.exact_tristrokes_for_layout(qwerty)
 
 def get_medians_of_tristroke_category(conditions: Callable[[Container[str]], bool]):
     totals = []
@@ -20,6 +21,7 @@ def get_medians_of_tristroke_category(conditions: Callable[[Container[str]], boo
     return totals
 
 fig, ax = plt.subplots()
+redir_nothumb_noscissor = lambda tags: "redir" in tags and "thumb" not in tags and "hsb" not in tags and "fsb" not in tags and "hss" not in tags and "fss" not in tags and "sfs" not in tags
 categories = {
     # "sfs redir": lambda tags: "sfs" in tags and "redir" in tags,
     # "all redir": lambda tags: "redir" in tags,
@@ -63,10 +65,12 @@ categories = {
 
     # "redir\nno thumb\nno scissor": lambda tags: "redir" in tags and "thumb" not in tags and "hsb" not in tags and "fsb" not in tags and "hss" not in tags and "fss" not in tags,
     # "redir\nno thumb\nsome scissor": lambda tags: "redir" in tags and "thumb" not in tags and not("hsb" not in tags and "fsb" not in tags and "hss" not in tags and "fss" not in tags),
-    "non bad redir\nthumb": lambda tags: "redir" in tags and "bad-redir" not in tags and "thumb" in tags,
-    "bad redir\nthumb": lambda tags: "bad-redir" in tags and "thumb" in tags,
-    "non bad redir\nno thumb": lambda tags: "redir" in tags and "bad-redir" not in tags and "thumb" not in tags,
-    "bad redir\nno thumb": lambda tags: "bad-redir" in tags and "thumb" not in tags,
+    # "non bad redir\nthumb": lambda tags: "redir" in tags and "bad-redir" not in tags and "thumb" in tags,
+    # "bad redir\nthumb": lambda tags: "bad-redir" in tags and "thumb" in tags,
+    # "non bad redir\nno thumb": lambda tags: "redir" in tags and "bad-redir" not in tags and "thumb" not in tags,
+    # "bad redir\nno thumb": lambda tags: "bad-redir" in tags and "thumb" not in tags,
+    "no thumb redir\ncenter last": lambda tags: redir_nothumb_noscissor(tags) and (("first-in" in tags and "skip-in" in tags) or ("first-out" in tags and "skip-out" in tags)),
+    "no thumb redir\nother": lambda tags: redir_nothumb_noscissor(tags) and not(("first-in" in tags and "skip-in" in tags) or ("first-out" in tags and "skip-out" in tags)),
 }
 datas = [np.array(get_medians_of_tristroke_category(func)) for func in categories.values()]
 ax.violinplot(datas, showmedians=True, quantiles=[[0.25, 0.75] for _ in datas])
@@ -81,3 +85,9 @@ for tick, label in zip(range(len(datas)), ax.get_xticklabels()):
              horizontalalignment='center', size='x-small')
 
 plt.show()
+
+for cat, discriminator in categories.items():
+    print(f"\n{cat}")
+    strokes = {qwerty.to_ngram(ts): td.tri_medians[ts][2] for ts in all_known if discriminator(describe_tristroke(ts))}
+    for tg in sorted(strokes, key=lambda tg: strokes[tg]):
+        print(f"{strokes[tg]:.2f} ms: {' '.join(tg)}")

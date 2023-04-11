@@ -259,7 +259,7 @@ Tags considering whole trigram:
 - bad-redir (Only for redir)
 
 Tags considering bigrams:
-- (first, second)-(in, out, sfb, sfr, fsb, hsb, lsb, rcb)
+- (first, second)-(alt, in, out, sfb, sfr, fsb, hsb, lsb, rcb)
 - skip-(in, out)
 - fss (contains fss)
 - hss (contains hss)
