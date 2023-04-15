@@ -51,23 +51,28 @@ class Layout:
         self.repeat_key = ""
         for row in s.splitlines():
             tokens = row.split("//", 1)[0].split(" ")
-            if tokens[0] == "fingermap:" and len(tokens) >= 2:
-                self.fingermap = fingermap.get_fingermap(tokens[1])
-                fingermap_defined = True
-            elif tokens[0] == "board:" and len(tokens) >= 2:
-                self.board = board.get_board(tokens[1])
-                board_defined = True
-            elif tokens[0] == "first_pos:" and len(tokens) >= 3:
-                try:
-                    first_row = int(tokens[1])
-                except ValueError:
-                    first_row = fingermap.Row[tokens[1]]
-                first_col = int(tokens[2])
-            elif tokens[0] == "special:" and len(tokens) >= 3:
-                self.special_replacements[tokens[1]] = tuple(tokens[2:])
-            elif tokens[0] == "repeat_key:" and len(tokens) >= 2:
-                self.repeat_key = tokens[1]
-            else:
+            if tokens[0] == "fingermap:":
+                if len(tokens) >= 2:
+                    self.fingermap = fingermap.get_fingermap(tokens[1])
+                    fingermap_defined = True
+            elif tokens[0] == "board:":
+                if len(tokens) >= 2:
+                    self.board = board.get_board(tokens[1])
+                    board_defined = True
+            elif tokens[0] == "first_pos:":
+                if len(tokens) >= 3:
+                    try:
+                        first_row = int(tokens[1])
+                    except ValueError:
+                        first_row = fingermap.Row[tokens[1]]
+                    first_col = int(tokens[2])
+            elif tokens[0] == "special:":
+                if len(tokens) >= 3:
+                    self.special_replacements[tokens[1]] = tuple(tokens[2:])
+            elif tokens[0] == "repeat_key:":
+                if len(tokens) >= 2:
+                    self.repeat_key = tokens[1]
+            elif len("".join(tokens)):
                 rows.append(tokens)
         if not fingermap_defined:
             self.fingermap = fingermap.get_fingermap("traditional")
@@ -316,8 +321,10 @@ class Layout:
     def get_corpus(self, settings: dict):
         return corpus.get_corpus(
             settings["filename"],
-            settings["space_key"],
-            settings["shift_key"],
+            "space" if ("space" in self.keys.values()) and settings["space_key"]
+                else settings["space_key"],
+            "shift" if ("shift" in self.keys.values()) and settings["shift_key"]
+                else settings["shift_key"],
             settings["shift_policy"],
             self.special_replacements,
             self.repeat_key,

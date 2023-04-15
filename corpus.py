@@ -118,6 +118,8 @@ class Corpus:
         self.replacements = create_replacements(
             self.space_key, self.shift_key, self.special_replacements
         )
+        replacee_lengths = sorted(set(
+            len(key) for key in self.replacements), reverse=True)
 
         self.key_counts = Counter()
         self.bigram_counts = Counter()
@@ -126,11 +128,29 @@ class Corpus:
         with open("corpus/" + self.filename, errors="ignore") as file:
             for raw_line in file:
                 processed = []
-                for char in raw_line:
-                    try:
-                        processed.extend(self.replacements[char])
-                    except KeyError:
-                        continue # probably \n but could also be special char
+
+                line_length = len(raw_line)
+                i = 0
+                while i < line_length:
+                    for lookahead in replacee_lengths: # longest first
+                        if i + lookahead <= line_length:
+                            if (replacer := self.replacements.get(
+                                    raw_line[i:i+lookahead], None)) is not None:
+                                processed.extend(replacer)
+                                i += lookahead
+                                break
+                    # if we get here, the character is not in corpus
+                    # just skip the char and continue
+                    else:
+                        i += 1
+
+
+                # Old, single-character replacees only
+                # for char in raw_line:
+                #     try:
+                #         processed.extend(self.replacements[char])
+                #     except KeyError:
+                #         continue # probably \n but could also be special char
                 
                 if bool(self.shift_key) and self.shift_policy == "once":
                     i = len(processed) - 1

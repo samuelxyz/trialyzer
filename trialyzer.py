@@ -119,7 +119,11 @@ def main(stdscr: curses.window):
                 if not target_corpus.precision
                 else f"top {target_corpus.precision}"
         )
-        return [
+        space_string = (corpus_settings['space_key'] 
+                        if corpus_settings['space_key'] else "[don't analyze spaces]")
+        shift_string = (corpus_settings['shift_key'] 
+                        if corpus_settings['shift_key'] else "[don't analyze shift]")
+        text = [
             "\"h\" or \"help\" to show command list",
             f"Analysis target: {analysis_target}",
             f"User layout: {user_layout}",
@@ -127,13 +131,17 @@ def main(stdscr: curses.window):
             f" (/data/{active_speeds_file}.csv)",
             f"Generation constraintmap: {active_constraintmap.name}",
             f"Corpus: {corpus_settings['filename']}",
-            f"Space key: {corpus_settings['space_key']}",
-            f"Shift key: {corpus_settings['shift_key']}",
-            "Consecutive capital letters: shift "
-                f"{corpus_settings['shift_policy']}",
+            f"Default space key: {space_string}",
+            f"Default shift key: {shift_string}",
+        ]
+        if corpus_settings["shift_key"]:
+            text.append("Consecutive capital letters: shift "
+                f"{corpus_settings['shift_policy']}")
+        text.append(
             f"Precision: {precision_text} "
                 f"({target_corpus.trigram_completeness:.3%})"
-        ]
+        )
+        return text
 
     curses.curs_set(0)
     gui_util.init_colors()
