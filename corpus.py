@@ -86,7 +86,9 @@ class Corpus:
                  special_replacements: dict[str, tuple[str,...]] = {},
                  precision: int = 500, 
                  repeat_key: str = "",
-                 json_dict: dict = None, other: Type["Corpus"] = None) -> None:
+                 json_dict: dict = None, 
+                 other: Type["Corpus"] = None,
+                 dsfb_experiment: tuple[float] = None) -> None:
         """To disable a key, set it to "".
 
         shift_policy can be "once" or "each". "once" means that when 
@@ -99,13 +101,15 @@ class Corpus:
         self.shift_policy = shift_policy
         self.special_replacements = special_replacements
         self.repeat_key = repeat_key
+    
+        self.dsfb: Counter[tuple[str], float] = None
 
         if json_dict is not None:
             self._json_load(json_dict)
         elif other is not None:
             self._translate(other)
         else:
-            self._process()
+            self._process(dsfb_experiment)
         self.precision = precision
         self.top_trigrams = ()
         self.trigram_precision_total = 0
@@ -114,7 +118,7 @@ class Corpus:
             item[0] for item in self.trigram_counts.most_common())
         self.set_precision(precision)
 
-    def _process(self):
+    def _process(self, dsfb_experiment: tuple[float] = None):
         self.replacements = create_replacements(
             self.space_key, self.shift_key, self.special_replacements
         )
@@ -124,6 +128,9 @@ class Corpus:
         self.key_counts = Counter()
         self.bigram_counts = Counter()
         self.trigram_counts = Counter()
+
+        if dsfb_experiment:
+            dsfb = Counter()
 
         with open("corpus/" + self.filename, errors="ignore") as file:
             for raw_line in file:
@@ -170,6 +177,15 @@ class Corpus:
                 self.bigram_counts.update(itertools.pairwise(line))
                 self.trigram_counts.update(
                     line[i:i+3] for i in range(len(line)-2))
+                
+                if dsfb_experiment:
+                    for i, l1 in enumerate(line):
+                        for sep, weight in enumerate(dsfb_experiment):
+                            if i+sep < len(line):
+                                dsfb[(l1, line[i+sep])] += weight
+
+        if dsfb_experiment:
+            self.dsfb = dsfb
         
     def set_precision(self, precision: int | None):
         # if self.trigram_precision_total and precision == self.precision:

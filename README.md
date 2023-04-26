@@ -15,7 +15,8 @@ Uses Python 3.10.11 with the following packages:
 Usage:
 - Once you have the above packages installed in your environment, use Python to run `trialyzer.py`.
     - I'll probably get around to a requirements.txt and other things eventually maybe possibly.
-- Trialyzer runs in a terminal window. For best results, use a terminal that is capable of colors. On my machine, VSCode's integrated terminal and Windows terminal both work, but I'm pretty bad at coding so trialyzer is notoriously (and [hilariously](https://cdn.discordapp.com/attachments/448292734982422543/937192289854455858/unknown.png)) bad at running on other people's setups.
+- Trialyzer runs in a terminal window. For best results, use a terminal that is capable of colors. 
+    - On my machines, VSCode's integrated terminal and Windows terminal both work, but I'm pretty bad at coding so trialyzer is notoriously (and [hilariously](https://cdn.discordapp.com/attachments/448292734982422543/937192289854455858/unknown.png)) bad at running on other people's setups.
     - A pretty big terminal window is needed for certain features. If you get a curses error, you may have to increase your window size and/or decrease font size.
 
 Features:
