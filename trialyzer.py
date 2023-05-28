@@ -430,7 +430,7 @@ def main(stdscr: curses.window):
                     return None
                 best_cat = min(completion, key = lambda cat: completion[cat])
                 # is sorted by descending frequency
-                for tg in target_corpus.all_trigrams:
+                for tg in target_corpus.trigram_counts:
                     if tg in ruled_out:
                         continue
                     try:
@@ -513,7 +513,7 @@ def main(stdscr: curses.window):
                 analysis_target)
             targ_tg = None
             applicable = applicable_function(category)
-            for tg in target_corpus.all_trigrams:
+            for tg in target_corpus.trigram_counts:
                 if with_keys and with_keys.isdisjoint(tg):
                     continue
                 try:
@@ -957,13 +957,13 @@ def main(stdscr: curses.window):
         message("Crunching the numbers >>>", gui_util.green)
         message_win.refresh()
 
-        bstats, sstats, tstats = layout_stats_analysis(target_layout, 
-                                                       corpus_settings)
+        bstats, sstats, tstats, btop, stop = layout_stats_analysis(
+            target_layout, corpus_settings)
         
         width = 46
-        lwidth = 16
+        lwidth = 14
         output = ["", f"{'BIGRAMS ':-<{width}s}"]
-        output.append(" "*lwidth+"bigram skipgram")
+        output.append(" "*lwidth+"bigram           skipgram")
         bg_labels = (
             "Same finger",
             "Repeat",
@@ -975,10 +975,13 @@ def main(stdscr: curses.window):
         )
         bg_tags = ("sfb", "sfr", "asb", "vsb", "lsb", "ahb", "shb")
         for label, tag in zip(bg_labels, bg_tags):
-            output.append(f"{label:<{lwidth}s}{bstats[tag]:6.2%}"
-                          f"  {sstats[tag]:6.2%}")
+            output.append(f"{label:<{lwidth}s}"
+                          f"{bstats[tag]:6.2%}"
+                          f" {' '.join(''.join(bg) for bg in btop[tag]):<8}"
+                          f" {sstats[tag]:6.2%}"
+                          f" {' '.join(''.join(sg) for sg in stop[tag]):<8}")
         output.append(f"{'In/out ratio':<{lwidth}s}{bstats['inratio']:5.2f}"
-                      f"   {sstats['inratio']:5.2f}")
+                      f"           {sstats['inratio']:5.2f}")
         output.append("")
         output.append(f"{'TRIGRAMS ':-<{width}s}")
         output.append(f"")
@@ -3010,8 +3013,11 @@ def layout_brief_analysis(layout_: layout.Layout, corpus_settings: dict,
 def layout_stats_analysis(layout_: layout.Layout, corpus_settings: dict, 
                           use_thumbs: bool = False):
     """
-    Returns a tuple of three Counters: one each for bigrams, skipgrams, and 
-    trigrams. Each is of the form dict[stat_name, percentage]
+    Returns a tuple containing, in this order:
+    * three Counters: one each for bigrams, skipgrams, and trigrams. Each is
+      of the form dict[stat_name, percentage]
+    * two dicts: one each for bigrams and skipgrams, listing the top three 
+      bigrams in each category. Each is of the form dict[str, list[(str, str)]]
 
     BIGRAMS (skipgrams are the same, with same names. No parens)
     * sfb (same finger)
@@ -3053,9 +3059,12 @@ def layout_stats_analysis(layout_: layout.Layout, corpus_settings: dict,
     sstats = Counter()
     tstats = Counter()
 
-    for dest, src in (
-        (bstats, corpus_.bigram_counts),
-        (sstats, corpus_.skip1_counts)
+    btop = defaultdict(list)
+    stop = defaultdict(list)
+
+    for dest, src, top in (
+        (bstats, corpus_.bigram_counts, btop),
+        (sstats, corpus_.skip1_counts, stop)
     ):
         bcount = 0
         for bg, count in src.items():
@@ -3072,6 +3081,8 @@ def layout_stats_analysis(layout_: layout.Layout, corpus_settings: dict,
             bcount += count
             for tag in tags:
                 dest[tag] += count
+                if len(top[tag]) < 3:
+                    top[tag].append(bg)
         for label in dest:
             dest[label] /= bcount
         dest["inratio"] = dest["shb-in"]/(dest["shb"] - dest["shb-in"])
@@ -3101,7 +3112,7 @@ def layout_stats_analysis(layout_: layout.Layout, corpus_settings: dict,
     tstats["inratio-trigram"] = (tstats["oneh-in"] + 
         tstats["roll-in"])/(roll_out + oneh_out)
 
-    return (bstats, sstats, tstats)
+    return (bstats, sstats, tstats, btop, stop)
 
 def layout_bistroke_analysis(layout_: layout.Layout, typingdata_: TypingData, 
         corpus_settings: dict):

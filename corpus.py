@@ -120,8 +120,6 @@ class Corpus:
         self.top_trigrams = ()
         self.trigram_precision_total = 0
         self.trigram_completeness = 0
-        self.all_trigrams = tuple(
-            item[0] for item in self.trigram_counts.most_common())
         self.set_precision(precision)
 
     def _process(self):
@@ -149,7 +147,7 @@ class Corpus:
                     for lookahead in replacee_lengths: # longest first
                         if i + lookahead <= line_length:
                             if (replacer := self.replacements.get(
-                                    raw_line[i:i+lookahead], None)) is not None:
+                                  raw_line[i:i+lookahead], None)) is not None:
                                 processed.extend(replacer)
                                 i += lookahead
                                 break
@@ -193,6 +191,15 @@ class Corpus:
                     for sep, weight in enumerate(self.skipgram_weights):
                         if i+sep < len(line):
                             self.skipgram_counts[(l1, line[i+sep])] += weight
+
+        self.key_counts = Counter(dict(self.key_counts.most_common()))
+        self.bigram_counts = Counter(dict(self.bigram_counts.most_common()))
+        self.skip1_counts = Counter(dict(self.skip1_counts.most_common()))
+        self.trigram_counts = Counter(dict(self.trigram_counts.most_common()))
+
+        if self.skipgram_weights:
+            self.skipgram_counts = Counter(dict(
+                self.skipgram_counts.most_common()))
         
     def set_precision(self, precision: int | None):
         # if self.trigram_precision_total and precision == self.precision:
@@ -202,12 +209,13 @@ class Corpus:
             precision = len(self.top_trigrams)
         else:
             self.precision = precision
-        self.top_trigrams = self.all_trigrams[:precision]
+        self.top_trigrams = tuple(self.trigram_counts)[:precision]
         self.trigram_precision_total = sum(self.trigram_counts[tg] 
             for tg in self.top_trigrams)
         self.trigram_completeness = (self.trigram_precision_total / 
             self.trigram_counts.total())
-        self.filtered_trigram_counts = {t: self.trigram_counts[t] for t in self.top_trigrams}
+        self.filtered_trigram_counts = {t: self.trigram_counts[t]
+            for t in self.top_trigrams}
 
     def _json_load(self, json_dict: dict):
         self.key_counts = Counter(json_dict["key_counts"])
