@@ -196,7 +196,7 @@ class Layout:
         to auto-calculate from the keymap. Since this uses functools.cache,
         give immutable arguments only.
 
-        Raises KeyError if a key is not found in the layout.
+        Returns None if a key is not found in the layout.
         """
         is_pure_ngram = (note == "" and fingers == ...)
         if not overwrite_cache:
@@ -211,8 +211,11 @@ class Layout:
         
         if fingers == ...:
             fingers = (self.fingers[key] for key in ngram)
-        result = Nstroke(note, tuple(fingers),
-                      tuple(self.coords[key] for key in ngram))
+        try:
+            result = Nstroke(note, tuple(fingers),
+                             tuple(self.coords[key] for key in ngram))
+        except KeyError:
+            result = None
                       
         if is_pure_ngram:
             self.nstroke_cache[ngram] = result

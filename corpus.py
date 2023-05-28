@@ -51,19 +51,20 @@ def undisplay_name(key: str, corpus_settings: dict):
 def create_replacements(space_key: str, shift_key: str, 
         special_replacements: dict[str, tuple[str,...]]):
     """A dict from direct corpus characters to key sequences. 
-    For example, "A" becomes the shift key and "a".
+    For example, "A" becomes (shift_key, "a") 
+    Also contains all default legal sequences, like {"a": "a"}
     """
     if space_key:
         replacements = {" ": (space_key,)}
     else:
-        replacements = {" ": ()}
+        replacements = {" ": ("unknown",)}
 
     if shift_key:
         for l, u in zip(default_lower, default_upper):
             replacements[u] = (shift_key, l)
     else:
         for l, u in zip(default_lower, default_upper):
-            replacements[u] = (l,)
+            replacements[u] = ("unknown", l)
 
     replacements.update(special_replacements)
     legal_chars = (set(default_lower) | set(default_upper) 
@@ -137,60 +138,60 @@ class Corpus:
         if self.skipgram_weights:
             self.skipgram_counts = Counter()
 
-        with open("corpus/" + self.filename, errors="ignore") as file:
-            for raw_line in file:
-                processed = []
+        def apply_replacements():
+            with open("corpus/" + self.filename, errors="ignore") as file:
+                for raw_line in file:
+                    buffer = []
 
-                line_length = len(raw_line)
-                i = 0
-                while i < line_length:
-                    for lookahead in replacee_lengths: # longest first
-                        if i + lookahead <= line_length:
+                    line_length = len(raw_line) - 1 # always ends with newline
+                    i = 0
+                    while i < line_length:
+                        for lookahead in replacee_lengths: # longest first
+                            if i + lookahead > line_length:
+                                continue # remember, this can go to else
                             if (replacer := self.replacements.get(
-                                  raw_line[i:i+lookahead], None)) is not None:
-                                processed.extend(replacer)
+                                raw_line[i:i+lookahead], None)) is not None:
+                                buffer.extend(replacer)
                                 i += lookahead
-                                break
-                    # if we get here, the character is not in corpus
-                    # just skip the char and continue
-                    else:
-                        i += 1
+                                break # doesn't go to else
+                        else:
+                            # No replacement found
+                            # We denote this key with "unknown"
+                            # The rest of trialyzer knows how to handle this.
+                            # Usually ngrams containing unknown keys are
+                            # discarded.
+                            buffer.add("unknown")
+                            i += 1
+                    yield buffer
 
+        for buffer in apply_replacements():            
+            if bool(self.shift_key) and self.shift_policy == "once":
+                i = len(buffer) - 1
+                while i >= 2:
+                    if (buffer[i] == self.shift_key 
+                        and buffer[i-2] == self.shift_key):
+                        buffer.pop(i)
+                    i -= 1
 
-                # Old, single-character replacees only
-                # for char in raw_line:
-                #     try:
-                #         processed.extend(self.replacements[char])
-                #     except KeyError:
-                #         continue # probably \n but could also be special char
-                
-                if bool(self.shift_key) and self.shift_policy == "once":
-                    i = len(processed) - 1
-                    while i >= 2:
-                        if (processed[i] == self.shift_key 
-                            and processed[i-2] == self.shift_key):
-                            processed.pop(i)
-                        i -= 1
-
-                if bool(self.repeat_key):
-                    for i in range(1, len(processed)):
-                        if processed[i] == processed[i-1]:
-                            processed[i] = self.repeat_key
-                        
-                line = tuple(processed)
-                self.key_counts.update(line)
-                self.bigram_counts.update(itertools.pairwise(line))
-                self.skip1_counts.update(zip(line, line[2:]))
-                self.trigram_counts.update(
-                    line[i:i+3] for i in range(len(line)-2))
-                
-                if not self.skipgram_weights:
-                    continue
+            if bool(self.repeat_key):
+                for i in range(1, len(buffer)):
+                    if buffer[i] == buffer[i-1]:
+                        buffer[i] = self.repeat_key
                     
-                for i, l1 in enumerate(line):
-                    for sep, weight in enumerate(self.skipgram_weights):
-                        if i+sep < len(line):
-                            self.skipgram_counts[(l1, line[i+sep])] += weight
+            line = tuple(buffer)
+            self.key_counts.update(line)
+            self.bigram_counts.update(itertools.pairwise(line))
+            self.skip1_counts.update(zip(line, line[2:]))
+            self.trigram_counts.update(
+                line[i:i+3] for i in range(len(line)-2))
+            
+            if not self.skipgram_weights:
+                continue
+                
+            for i, l1 in enumerate(line):
+                for sep, weight in enumerate(self.skipgram_weights):
+                    if i+sep < len(line):
+                        self.skipgram_counts[(l1, line[i+sep])] += weight
 
         self.key_counts = Counter(dict(self.key_counts.most_common()))
         self.bigram_counts = Counter(dict(self.bigram_counts.most_common()))

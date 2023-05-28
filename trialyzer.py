@@ -433,9 +433,7 @@ def main(stdscr: curses.window):
                 for tg in target_corpus.trigram_counts:
                     if tg in ruled_out:
                         continue
-                    try:
-                        tristroke = analysis_target.to_nstroke(tg)
-                    except KeyError: # contains key not in layout
+                    if (tristroke := analysis_target.to_nstroke(tg)) is None:
                         continue
                     if tristroke_category(tristroke) == best_cat:
                         ruled_out.add(tg)
@@ -516,9 +514,7 @@ def main(stdscr: curses.window):
             for tg in target_corpus.trigram_counts:
                 if with_keys and with_keys.isdisjoint(tg):
                     continue
-                try:
-                    ts = analysis_target.to_nstroke(tg)
-                except KeyError:
+                if (ts := analysis_target.to_nstroke(tg)) is None:
                     continue
                 if not applicable(tristroke_category(ts)) or ts in exact_tristrokes:
                     continue
@@ -553,17 +549,14 @@ def main(stdscr: curses.window):
                     f"\nFrequency: {freq:.3%}",
                     gui_util.blue)
         else:
-            try:
-                tristroke = user_layout.to_nstroke(tuple(args))
-            except KeyError:
-                if len(args[0]) != 3:
-                    message("Malformed trigram", gui_util.red)
-                    return
-                try:
-                    tristroke = user_layout.to_nstroke(tuple(args[0]))
-                except (KeyError, ValueError):
-                    message("Malformed trigram", gui_util.red)
-                    return
+            if len(args) == 1:
+                args = tuple(args)
+            if len(tuple(args)) != 3:
+                message("Trigram must be length 3", gui_util.red)
+                return
+            if (tristroke := user_layout.to_nstroke(tuple(args))) is None:                
+                message("That trigram isn't in this layout", gui_util.red)
+                return
             estimate, _ = typingdata_.tristroke_speed_calculator(
                 user_layout)(tristroke)
             user_corp = user_layout.get_corpus(corpus_settings)
@@ -572,7 +565,7 @@ def main(stdscr: curses.window):
                     user_corp.trigram_counts[user_layout.to_ngram(tristroke)]/
                     user_corp.trigram_counts.total())
                 message(f"\nFrequency: {freq:.3%}", gui_util.blue)
-            except KeyError:
+            except (KeyError, TypeError):
                 freq = None
         csvdata = typingdata_.csv_data
         if tristroke in csvdata:
@@ -597,13 +590,10 @@ def main(stdscr: curses.window):
             message("Usage: c[lear] <trigram>", gui_util.red)
             return
         csvdata = typingdata_.csv_data
-        try:
-            tristroke = user_layout.to_nstroke(trigram)
-        except KeyError:
-            try:
-                tristroke = user_layout.to_nstroke(tuple(
-                    undisplay_name(key, corpus_settings) for key in trigram))
-            except KeyError:
+        if (tristroke := user_layout.to_nstroke(trigram)) is None:                
+            if (tristroke := user_layout.to_nstroke(tuple(
+                    undisplay_name(key, corpus_settings) 
+                    for key in trigram))) is None:
                 message("That trigram does not exist in the user layout",
                     gui_util.red)
                 return
@@ -963,7 +953,7 @@ def main(stdscr: curses.window):
         width = 46
         lwidth = 14
         output = ["", f"{'BIGRAMS ':-<{width}s}"]
-        output.append(" "*lwidth+"bigram           skipgram")
+        output.append(" "*lwidth+"Bigram           Skip-1-gram")
         bg_labels = (
             "Same finger",
             "Repeat",
@@ -978,7 +968,7 @@ def main(stdscr: curses.window):
             output.append(f"{label:<{lwidth}s}"
                           f"{bstats[tag]:6.2%}"
                           f" {' '.join(''.join(bg) for bg in btop[tag]):<8}"
-                          f" {sstats[tag]:6.2%}"
+                          f"  {sstats[tag]:6.2%}"
                           f" {' '.join(''.join(sg) for sg in stop[tag]):<8}")
         output.append(f"{'In/out ratio':<{lwidth}s}{bstats['inratio']:5.2f}"
                       f"           {sstats['inratio']:5.2f}")
@@ -1008,6 +998,18 @@ def main(stdscr: curses.window):
                       f"{tstats['inratio-oneh']:5.2f}"
                       f"   {sstats['inratio-roll']:5.2f}")
         message("\n".join(output), win=right_pane)
+
+        ymax = right_pane.getmaxyx()[0]
+        row = ymax - 20
+
+        for r, tag in enumerate(bg_tags, start=row):
+            right_pane.addstr(r, lwidth+7, 
+                f"{' '.join(''.join(bg) for bg in btop[tag]):<8}",
+                curses.color_pair(gui_util.gray))
+            right_pane.addstr(r, lwidth+24, 
+                f"{' '.join(''.join(sg) for sg in stop[tag]):<8}",
+                curses.color_pair(gui_util.gray))
+        right_pane.refresh()
 
     def cmd_dump():
         if args:
@@ -1078,7 +1080,8 @@ def main(stdscr: curses.window):
                 tristroke_display_names.append(category_display_names[cat])
             except KeyError:
                 tristroke_display_names.append(cat)
-        header = ["trigram", "category", "ms_low", "ms_high", "ms_first", "ms_second", "ms_total"]
+        header = ["trigram", "category", "ms_low", "ms_high", "ms_first", 
+                  "ms_second", "ms_total"]
         exacts = typingdata_.exact_tristrokes_for_layout(analysis_target)
         
         filename = find_free_filename("output/dump-catmedians", ".csv")
@@ -1739,6 +1742,7 @@ def main(stdscr: curses.window):
                 "Like analyze but compares two layouts",
             "a[nalyze]swap [letter1 letter2] [...]: Analyze a swap",
             "f[ingers] [layout name]: Hand/finger usage breakdown",
+            "s[tats] [layout name]: Use more conventional freq-only analysis",
             "r[ank]: Rank all layouts by wpm",
             "rt <min|max> <freq|exact|avg_ms|ms> [category]: "
                 "Rank by tristroke statistic",
@@ -2786,9 +2790,10 @@ def trigrams_in_list(
     speed_calc =  typingdata_.tristroke_speed_calculator(layout_)
     corpus_ = layout_.get_corpus(corpus_settings)
     for trigram in trigrams:
+        if (tristroke := layout_.to_nstroke(trigram)) is None:
+            continue
         try:
             count = corpus_.trigram_counts[trigram]
-            tristroke = layout_.to_nstroke(trigram)
         except KeyError:
             continue
         speed, exact = speed_calc(tristroke)
@@ -2831,9 +2836,7 @@ def trigrams_with_specifications_raw(
     speed_calc =  typingdata_.tristroke_speed_calculator(layout_)
     for trigram, count in layout_.get_corpus(
             corpus_settings).trigram_counts.items():
-        try:
-            tristroke = layout_.to_nstroke(trigram)
-        except KeyError:
+        if (tristroke := layout_.to_nstroke(trigram)) is None:
             continue
         total_count += count
         if (with_keys.isdisjoint(trigram) 
@@ -3068,9 +3071,7 @@ def layout_stats_analysis(layout_: layout.Layout, corpus_settings: dict,
     ):
         bcount = 0
         for bg, count in src.items():
-            try:
-                bs = layout_.to_nstroke(bg)
-            except KeyError:
+            if (bs := layout_.to_nstroke(bg)) is None:
                 continue
             if (not use_thumbs) and any(
                 f in (Finger.RT, Finger.LT) for f in bs.fingers):
@@ -3089,9 +3090,7 @@ def layout_stats_analysis(layout_: layout.Layout, corpus_settings: dict,
         
     tcount = 0
     for tg in corpus_.top_trigrams:
-        try:
-            ts = layout_.to_nstroke(tg)
-        except KeyError:
+        if (ts := layout_.to_nstroke(tg)) is None:
             continue
         if (not use_thumbs) and any(
             f in (Finger.RT, Finger.LT) for f in ts.fingers):
@@ -3127,9 +3126,7 @@ def layout_bistroke_analysis(layout_: layout.Layout, typingdata_: TypingData,
     bi_medians = typingdata_.amalgamated_bistroke_medians(layout_)
     bicatdata = typingdata_.bistroke_category_data(layout_)
     for bigram in bigram_counts:
-        try:
-            bistroke = layout_.to_nstroke(bigram)
-        except KeyError: # contains key not in layout
+        if (bistroke := layout_.to_nstroke(bigram)) is None:
             continue
         cat = bistroke_category(bistroke)
         count = bigram_counts[bigram]
@@ -3180,9 +3177,7 @@ def layout_tristroke_analysis(layout_: layout.Layout, typingdata_: TypingData,
     speed_func = typingdata_.tristroke_speed_calculator(layout_)
     corpus_ = layout_.get_corpus(corpus_settings)
     for trigram in corpus_.top_trigrams:
-        try:
-            ts = layout_.to_nstroke(trigram)
-        except KeyError: # contains key not in layout
+        if (ts := layout_.to_nstroke(trigram)) is None:
             continue
         cat = tristroke_category(ts)
         count = corpus_.trigram_counts[trigram]
@@ -3239,9 +3234,7 @@ def layout_speed_raw(
     speed_func = typingdata_.tristroke_speed_calculator(layout_)
     corpus_ = layout_.get_corpus(corpus_settings)
     for trigram in corpus_.top_trigrams:
-        try:
-            ts = layout_.to_nstroke(trigram)
-        except KeyError: # contains key not in layout
+        if (ts := layout_.to_nstroke(trigram)) is None:
             continue
         count = corpus_.trigram_counts[trigram]
         speed, is_exact = speed_func(ts)
@@ -3278,9 +3271,7 @@ def finger_analysis(layout_: layout.Layout, typingdata_: TypingData,
         raw_stats[finger_names[finger[1]]][3] += letter_counts[key]
     total_tcount = 0
     for trigram in corpus_.top_trigrams:
-        try:
-            tristroke: Tristroke = layout_.to_nstroke(trigram)
-        except KeyError: # contains key not in layout
+        if (tristroke := layout_.to_nstroke(trigram)) is None:
             continue
         tcount = corpus_.trigram_counts[trigram]
         total_tcount += tcount
@@ -3324,9 +3315,7 @@ def key_analysis(layout_: layout.Layout, typingdata_: TypingData,
     corpus_ = layout_.get_corpus(corpus_settings)
     
     for trigram in corpus_.top_trigrams:
-        try:
-            ts = layout_.to_nstroke(trigram)
-        except KeyError: # contains key not in layout
+        if (ts := layout_.to_nstroke(trigram)) is None:
             continue
         cat = tristroke_category(ts)
         count = corpus_.trigram_counts[trigram]
@@ -3452,9 +3441,7 @@ def remapped_score(
         if not affected_by_remap:
             continue
         
-        try:
-            ts = lay.to_nstroke(ngram)
-        except KeyError: # key not in layout
+        if (ts := lay.to_nstroke(ngram)) is None:
             continue
         tcount = trigram_counts[ngram]
 
