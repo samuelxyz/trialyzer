@@ -51,13 +51,25 @@ def calc_dsfb(c: corpus.Corpus, l: layout.Layout):
             count += c.dsfb[combo]
     return count / c.bigram_counts.total()
 
+s = 3.22 # sfb time / nonsfb time, bigrams
+
 corpuses = {
-    "exponential": corpus.Corpus("tr_quotes.txt", "", "", 
-        dsfb_experiment=(0, 0, *(2**-n for n in range(7)))),
-    "harmonic": corpus.Corpus("tr_quotes.txt", "", "", 
-        dsfb_experiment=(0, 0, *(n**-1 for n in range(1, 8)))),
-    "inverse square": corpus.Corpus("tr_quotes.txt", "", "", 
-        dsfb_experiment=(0, 0, *(n**-2 for n in range(1, 8)))),
+    "sfb exponential": corpus.Corpus("tr_quotes.txt", "", "", 
+        dsfb_weights=(0, *(2**-n for n in range(8)))),
+    "sfb harmonic": corpus.Corpus("tr_quotes.txt", "", "", 
+        dsfb_weights=(0, *(n**-1 for n in range(1, 9)))),
+    "sfb inverse square": corpus.Corpus("tr_quotes.txt", "", "", 
+        dsfb_weights=(0, *(n**-2 for n in range(1, 9)))),
+    "sfs exponential": corpus.Corpus("tr_quotes.txt", "", "", 
+        dsfb_weights=(0, 0, *(2**-n for n in range(7)))),
+    "sfs harmonic": corpus.Corpus("tr_quotes.txt", "", "", 
+        dsfb_weights=(0, 0, *(n**-1 for n in range(1, 8)))),
+    "sfs inverse square": corpus.Corpus("tr_quotes.txt", "", "", 
+        dsfb_weights=(0, 0, *(n**-2 for n in range(1, 8)))),
+    "typing speed model": corpus.Corpus("tr_quotes.txt", "", "", 
+        dsfb_weights=(0, *(max(0, 1-n/s) for n in range(1, 9)))),
+    "finger speed model": corpus.Corpus("tr_quotes.txt", "", "", 
+        dsfb_weights=(0, *(min(1, s/n) for n in range(1, 9)))),
 }
 # print(c.dsfb.most_common(30))
 

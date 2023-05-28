@@ -88,12 +88,16 @@ class Corpus:
                  repeat_key: str = "",
                  json_dict: dict = None, 
                  other: Type["Corpus"] = None,
-                 dsfb_experiment: tuple[float] = None) -> None:
-        """To disable a key, set it to "".
+                 skipgram_weights: tuple[float] = None) -> None:
+        """To disable a key, set it to `""`.
 
-        shift_policy can be "once" or "each". "once" means that when 
+        `shift_policy` can be "once" or "each". "once" means that when 
         consecutive capital letters occur, shift is only pressed once before 
         the first letter. "each" means shift is pressed before each letter.
+        
+        `skipgram_weights` contains the weight in its `i`th index for pairs
+        of the form `pos, pos+i` for any position in the corpus. For 
+        example, regular bigrams would be weighted by the number at index 1.
         """
         self.filename = filename
         self.space_key = space_key
@@ -101,15 +105,17 @@ class Corpus:
         self.shift_policy = shift_policy
         self.special_replacements = special_replacements
         self.repeat_key = repeat_key
-    
-        self.dsfb: Counter[tuple[str], float] = None
+        self.skipgram_weights = skipgram_weights
+
+        # Not necessarily integer, due to skipgram_weights floats
+        self.skipgram_counts: Counter[tuple[str], float] = None
 
         if json_dict is not None:
             self._json_load(json_dict)
         elif other is not None:
             self._translate(other)
         else:
-            self._process(dsfb_experiment)
+            self._process()
         self.precision = precision
         self.top_trigrams = ()
         self.trigram_precision_total = 0
@@ -118,7 +124,7 @@ class Corpus:
             item[0] for item in self.trigram_counts.most_common())
         self.set_precision(precision)
 
-    def _process(self, dsfb_experiment: tuple[float] = None):
+    def _process(self):
         self.replacements = create_replacements(
             self.space_key, self.shift_key, self.special_replacements
         )
@@ -127,10 +133,11 @@ class Corpus:
 
         self.key_counts = Counter()
         self.bigram_counts = Counter()
+        self.skip1_counts = Counter()
         self.trigram_counts = Counter()
 
-        if dsfb_experiment:
-            dsfb = Counter()
+        if self.skipgram_weights:
+            self.skipgram_counts = Counter()
 
         with open("corpus/" + self.filename, errors="ignore") as file:
             for raw_line in file:
@@ -175,17 +182,17 @@ class Corpus:
                 line = tuple(processed)
                 self.key_counts.update(line)
                 self.bigram_counts.update(itertools.pairwise(line))
+                self.skip1_counts.update(zip(line, line[2:]))
                 self.trigram_counts.update(
                     line[i:i+3] for i in range(len(line)-2))
                 
-                if dsfb_experiment:
-                    for i, l1 in enumerate(line):
-                        for sep, weight in enumerate(dsfb_experiment):
-                            if i+sep < len(line):
-                                dsfb[(l1, line[i+sep])] += weight
-
-        if dsfb_experiment:
-            self.dsfb = dsfb
+                if not self.skipgram_weights:
+                    continue
+                    
+                for i, l1 in enumerate(line):
+                    for sep, weight in enumerate(self.skipgram_weights):
+                        if i+sep < len(line):
+                            self.skipgram_counts[(l1, line[i+sep])] += weight
         
     def set_precision(self, precision: int | None):
         # if self.trigram_precision_total and precision == self.precision:
@@ -205,7 +212,9 @@ class Corpus:
     def _json_load(self, json_dict: dict):
         self.key_counts = Counter(json_dict["key_counts"])
         self.bigram_counts = eval(json_dict["bigram_counts"])
+        self.skip1_counts = eval(json_dict["skip1_counts"])
         self.trigram_counts = eval(json_dict["trigram_counts"])
+        self.skipgram_counts = eval(json_dict["skipgram_counts"])
     
     def jsonable_export(self):
         return {
@@ -217,7 +226,10 @@ class Corpus:
             "repeat_key": self.repeat_key,
             "key_counts": self.key_counts,
             "bigram_counts": repr(self.bigram_counts),
-            "trigram_counts": repr(self.trigram_counts)
+            "skip1_counts": repr(self.skip1_counts),
+            "trigram_counts": repr(self.trigram_counts),
+            "skipgram_weights": self.skipgram_weights,
+            "skipgram_counts": repr(self.skipgram_counts)
         }
 
     def _translate(self, other: Type["Corpus"]):
@@ -231,6 +243,8 @@ class Corpus:
             raise TranslationError("Cannot translate differing special_replacements")
         if bool(self.repeat_key) != bool(other.repeat_key):
             raise TranslationError("Cannot translate missing repeat key")
+        if self.skipgram_weights != other.skipgram_weights:
+            raise TranslationError("Cannot translate differing skipgram weights")
 
         self.replacements = create_replacements(
             self.space_key, self.shift_key, self.special_replacements
@@ -250,6 +264,10 @@ class Corpus:
         for to, count in other.trigram_counts.items():
             self.trigram_counts[
                 tuple(conversion.get(ko, ko) for ko in to)] = count
+        self.skipgram_counts = Counter()
+        for so, count in other.skipgram_counts.items():
+            self.skipgram_counts[
+                tuple(conversion.get(ko, ko) for ko in so)] = count
 
 # All corpuses, including translations
 loaded = [] # type: list[Corpus]
@@ -262,7 +280,8 @@ def get_corpus(filename: str,
                shift_policy: str = "once",
                special_replacements: dict[str, tuple[str,...]] = {},
                repeat_key: str = "",
-               precision: int = 500):
+               precision: int = 500,
+               skipgram_weights: tuple[float] = None):
     
     any_loaded = False
     for c in loaded:
@@ -280,7 +299,8 @@ def get_corpus(filename: str,
             corpus_.shift_key == shift_key and
             corpus_.shift_policy == shift_policy and
             corpus_.special_replacements == special_replacements and
-            corpus_.repeat_key == repeat_key
+            corpus_.repeat_key == repeat_key and
+            corpus_.skipgram_weights == skipgram_weights
         ):
             corpus_.set_precision(precision)
             return corpus_
@@ -289,7 +309,8 @@ def get_corpus(filename: str,
     for corpus_ in loaded:
         try:
             new_ = Corpus(filename, space_key, shift_key, shift_policy, 
-                special_replacements, precision, repeat_key, other=corpus_)
+                special_replacements, precision, repeat_key, None, corpus_,
+                skipgram_weights)
         except TranslationError:
             continue # translation unsuccessful
         loaded.append(new_)
@@ -297,7 +318,8 @@ def get_corpus(filename: str,
 
     # create entire new one
     new_ = Corpus(filename, space_key, shift_key, shift_policy, 
-        special_replacements, precision, repeat_key)
+        special_replacements, precision, repeat_key, 
+        skipgram_weights=skipgram_weights)
     loaded.append(new_)
     disk_list.append(new_)
     _save_corpus_list(filename)
@@ -317,9 +339,11 @@ def _load_corpus_list(filename: str, precision: int = 500):
         shift_policy = c["shift_policy"]
         special_replacements = c.get("special_replacements", {})
         repeat_key = c.get("repeat_key", "")
+        skipgram_weights = c.get("skipgram_weights", None)
         result.append(Corpus(
             filename, space_key, shift_key, shift_policy, 
-            special_replacements, precision, repeat_key, json_dict=c
+            special_replacements, precision, repeat_key, json_dict=c,
+            skipgram_weights=skipgram_weights
         ))
     loaded.extend(result)
     disk_list.extend(result)

@@ -1,7 +1,7 @@
 # Entry point for the trialyzer application
 # Contains main user interface and analysis features
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 import csv
 import curses
 import curses.textpad
@@ -26,10 +26,11 @@ import typingtest
 from fingermap import Finger
 from constraintmap import Constraintmap
 from corpus import display_str, display_name, undisplay_name
-from nstroke import (Nstroke, Tristroke, all_bistroke_categories,
+from nstroke import (Nstroke, Tristroke, akl_bistroke_tags, all_bistroke_categories,
                      all_tristroke_categories, applicable_function,
-                     bistroke_category, category_display_names, finger_names,
-                     hand_names, tristroke_category)
+                     bistroke_category, category_display_names, 
+                     akl_tristroke_tags, finger_names, hand_names, 
+                     tristroke_category)
 from typingdata import TypingData
 
 
@@ -941,6 +942,69 @@ def main(stdscr: curses.window):
             gui_util.insert_line_bottom(f"Use command \"{hint}\" "
                 "to see remaining categories", right_pane)
         print_analysis_stats(bi_disp, bi_header_line, True)
+
+    def cmd_stats():
+        if args:
+            layout_name = " ".join(args)
+            try:
+                target_layout = layout.get_layout(layout_name)
+            except FileNotFoundError:
+                message(f"/layouts/{layout_name} was not found.", 
+                        gui_util.red)
+                return
+        else:
+            target_layout = analysis_target
+        message("Crunching the numbers >>>", gui_util.green)
+        message_win.refresh()
+
+        bstats, sstats, tstats = layout_stats_analysis(target_layout, 
+                                                       corpus_settings)
+        
+        width = 46
+        lwidth = 16
+        output = ["", f"{'BIGRAMS ':-<{width}s}"]
+        output.append(" "*lwidth+"bigram skipgram")
+        bg_labels = (
+            "Same finger",
+            "Repeat",
+            "Any stretch",
+            "    Vertical",
+            "    Lateral",
+            "Alt hand",
+            "Same hand"
+        )
+        bg_tags = ("sfb", "sfr", "asb", "vsb", "lsb", "ahb", "shb")
+        for label, tag in zip(bg_labels, bg_tags):
+            output.append(f"{label:<{lwidth}s}{bstats[tag]:6.2%}"
+                          f"  {sstats[tag]:6.2%}")
+        output.append(f"{'In/out ratio':<{lwidth}s}{bstats['inratio']:5.2f}"
+                      f"   {sstats['inratio']:5.2f}")
+        output.append("")
+        output.append(f"{'TRIGRAMS ':-<{width}s}")
+        output.append(f"")
+        output.append(f"SFT excluded: {tstats['sft']:6.2%}")
+        output.append(f"Total in/out: {tstats['inratio-trigram']:5.2f}")
+        output.append(" "*lwidth+"Redir   Alt     Oneh    Roll")
+        tg_labels = (
+            "Good",
+            "Any stretch",
+            "SFS",
+            "Weak fingers",
+            "Total"
+        )
+        tg_tags = ("best", "stretch", "sfs", "weak", "total")
+        for label, tag in zip(tg_labels, tg_tags):
+            line = f"{label:<{lwidth}s}"
+            for cat in ("redir", "alt", "oneh", "roll"):
+                if f'{cat}-{tag}' in tstats.keys():
+                    line += f"{tstats[f'{cat}-{tag}']:6.2%}  "
+                else:
+                    line += " "*8
+            output.append(line)
+        output.append(f"{'In/out ratio':<{lwidth+16}s}"
+                      f"{tstats['inratio-oneh']:5.2f}"
+                      f"   {sstats['inratio-roll']:5.2f}")
+        message("\n".join(output), win=right_pane)
 
     def cmd_dump():
         if args:
@@ -2561,6 +2625,8 @@ def main(stdscr: curses.window):
                 cmd_analyze_swap()
             elif command in ("fullaswap",):
                 cmd_analyze_swap(True)
+            elif command in ("s", "stats"):
+                cmd_stats()
             elif command == "dump":
                 cmd_dump()
             elif command in ("f", "fingers"):
@@ -2834,6 +2900,208 @@ def tristroke_breakdowns(medians: dict):
             count = len(samples[cat][bs])
             result[cat][bs] = (mean, count)
     return result
+
+def layout_brief_analysis(layout_: layout.Layout, corpus_settings: dict, 
+                          use_thumbs: bool = False):
+    """
+    Returns dict[stat_name, percentage]
+
+    BAD BIGRAMS
+    sfb (same finger)
+    sfs
+    vsb (vertical stretch)
+    vss
+    lsb (lateral stretch)
+    lss
+    asb (any stretch)
+    ass
+
+    GOOD BIGRAMS
+    2roll-in
+    2roll-out
+    2roll-total
+    in-out-ratio
+    2alt
+
+    ahs
+    shs-best (shs-total - sfs - fss)
+    shs-total
+
+    TRIGRAMS
+    redir-best
+    redir-stretch
+    redir-weak
+    redir-sfs
+    redir-total
+
+    oneh-best
+    oneh-stretch
+    oneh-total
+
+    alt-best (calculated from shs-best, redir-best, onehand-best)
+    alt-sfs (calculated from sfs, sft, redirects-sfs)
+
+    tutu-approx (2*2roll-total)
+
+    sft
+    """
+
+    # any 2roll-total bigram can be part of 
+    #   redir-total
+    #   oneh-total
+    #   3sfb-samehand (approximate as 3sfb/2 = 2sfb?)
+    #   tutu
+
+    # normally with a lone fsb, your trigram-incl-fsb category (call it 3fsb)
+    # increases by 2. (2 3fsb per 1 2fsb). But when fsb chain into a fst, 
+    # your 3fsb increases by 3 (fst in the middle), so 3 3fsb per 2 2fsb.
+    # so the ratio goes off. but you can fix it by adding an extra fst,
+    # so 2*fsb = 3fsb + fst. however in most cases fst is negligible
+    #
+    # Additionally, when you have a longer chain like fsq, it goes to 
+    # 4 3fsb per 3 2fsb. so when you add back the 2 3fsb, it should also 
+    # restore things to the right numbers.
+    #
+    # And if 2 2fsb right next to each other NOT overlapping, you
+    # get 4 3fsb per 2 2fsb which is correct. so thats good
+    #
+    # But if you have a 2fsb at the start or end of a line, then
+    # you only get 1 3fsb for that 2fsb, and there's no good way
+    # to correct that. So that has to be accepted as inaccuracy. 
+    # Overall 3fsb should therefore turn out to be lower than the fst
+    # correction formula predicts.
+    #
+    # checking this with trialyzer sfb counts: 
+    # trigram(sfb+sfr) = 4.28%, bigram(sfb+sfr) = 2.21%,
+    # sft = 0.05%. 
+    # Formula predicts 
+    #   2*sfb = 3sfb + sft
+    #   4.42% > 4.33%
+    #   3sfb is indeed lower than the formula predicts.
+    # Checking again with scissors:
+    # trigram with scissor bigram = 1.85%, bigram scissors = 0.96%,
+    # scissor_twice = 0.03%
+    # Formula predicts 
+    #   2*sbigram = 3scissor + scissor_twice
+    #   1.92% > 1.85 + 0.03%
+    #   3scissor is indeed lower than the formula predicts.
+    # Could correct further by using the average length of a line in the corpus
+    # but ehhhhhh
+    #
+    # ohhhh great what about skipgrams. they dont have the same problem
+    # because there is no simple bigram thing we're trying to extrapolate from
+
+    # the trigram-incl-fsb category (i think =2*fsb) is composed of
+    #   redir-scissor (includes redir-sfs-scissor)
+    #   oneh-scissor
+    #   double-scissor versions of the above
+    #   tutu-scissor -> this is 3fsb - redir-scissor - oneh-scissor.
+    #                -> trigram-incl-fsb is 2*fsb + *-double-scissor
+
+    # ahs trigrams break down into
+    #   3sfb-handswitch (approximate as 3sfb/2 = 2sfb?)
+    #   tutu-scissor
+    #   tutu-best
+
+
+    corpus_ = layout_.get_corpus(corpus_settings)
+    pass # TODO
+
+def layout_stats_analysis(layout_: layout.Layout, corpus_settings: dict, 
+                          use_thumbs: bool = False):
+    """
+    Returns a tuple of three Counters: one each for bigrams, skipgrams, and 
+    trigrams. Each is of the form dict[stat_name, percentage]
+
+    BIGRAMS (skipgrams are the same, with same names. No parens)
+    * sfb (same finger)
+    * asb (any stretch)
+    * vsb (vertical stretch)
+    * lsb (lateral stretch)
+    * ahb (alternate hand)
+    * shb (same hand, other finger)
+    * inratio
+
+    TRIGRAMS
+    * sft
+    * inratio-trigram
+
+    * redir-best
+    * redir-stretch
+    * redir-sfs
+    * redir-weak
+    * redir-total
+
+    * alt-best
+    * alt-stretch
+    * alt-sfs
+    * alt-total
+
+    * oneh-best
+    * oneh-stretch
+    * oneh-total
+    * inratio-oneh
+
+    * roll-best
+    * roll-stretch
+    * roll-total
+    * inratio-roll
+
+    """
+    corpus_ = layout_.get_corpus(corpus_settings)
+    bstats = Counter()
+    sstats = Counter()
+    tstats = Counter()
+
+    for dest, src in (
+        (bstats, corpus_.bigram_counts),
+        (sstats, corpus_.skip1_counts)
+    ):
+        bcount = 0
+        for bg, count in src.items():
+            try:
+                bs = layout_.to_nstroke(bg)
+            except KeyError:
+                continue
+            if (not use_thumbs) and any(
+                f in (Finger.RT, Finger.LT) for f in bs.fingers):
+                continue
+            tags = akl_bistroke_tags(bs)
+            if not tags:
+                continue # unknown bigram
+            bcount += count
+            for tag in tags:
+                dest[tag] += count
+        for label in dest:
+            dest[label] /= bcount
+        dest["inratio"] = dest["shb-in"]/(dest["shb"] - dest["shb-in"])
+        
+    tcount = 0
+    for tg in corpus_.top_trigrams:
+        try:
+            ts = layout_.to_nstroke(tg)
+        except KeyError:
+            continue
+        if (not use_thumbs) and any(
+            f in (Finger.RT, Finger.LT) for f in ts.fingers):
+            continue
+        tags = akl_tristroke_tags(ts)
+        if not tags:
+            continue # unknown trigram
+        count = corpus_.trigram_counts[tg]
+        tcount += count
+        for tag in tags:
+            tstats[tag] += count
+    for label in tstats:
+        tstats[label] /= tcount
+    roll_out = tstats["roll-total"]-tstats["roll-in"]
+    oneh_out = tstats["oneh-total"]-tstats["oneh-in"]
+    tstats["inratio-roll"] = tstats["roll-in"]/roll_out
+    tstats["inratio-oneh"] = tstats["oneh-in"]/oneh_out
+    tstats["inratio-trigram"] = (tstats["oneh-in"] + 
+        tstats["roll-in"])/(roll_out + oneh_out)
+
+    return (bstats, sstats, tstats)
 
 def layout_bistroke_analysis(layout_: layout.Layout, typingdata_: TypingData, 
         corpus_settings: dict):

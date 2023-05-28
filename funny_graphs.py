@@ -7,7 +7,7 @@ import numpy as np
 
 import typingdata
 import layout
-from nstroke import describe_tristroke
+from nstroke import experimental_describe_tristroke
 
 td = typingdata.TypingData("tanamr")
 qwerty = layout.get_layout("qwerty")
@@ -16,7 +16,7 @@ all_known = td.exact_tristrokes_for_layout(qwerty)
 def get_medians_of_tristroke_category(conditions: Callable[[Container[str]], bool]):
     totals = []
     for ts in all_known:
-        if conditions(describe_tristroke(ts)):
+        if conditions(experimental_describe_tristroke(ts)):
             totals.append(td.tri_medians[ts][2])
     return totals
 
@@ -88,6 +88,6 @@ plt.show()
 
 for cat, discriminator in categories.items():
     print(f"\n{cat}")
-    strokes = {qwerty.to_ngram(ts): td.tri_medians[ts][2] for ts in all_known if discriminator(describe_tristroke(ts))}
+    strokes = {qwerty.to_ngram(ts): td.tri_medians[ts][2] for ts in all_known if discriminator(experimental_describe_tristroke(ts))}
     for tg in sorted(strokes, key=lambda tg: strokes[tg]):
         print(f"{strokes[tg]:.2f} ms: {' '.join(tg)}")
