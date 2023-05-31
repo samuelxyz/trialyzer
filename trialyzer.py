@@ -18,10 +18,12 @@ import typing
 from typing import Callable, Collection, Iterable
 
 import constraintmap
+import command
 import gui_util
 import layout
 import remap
 from remap import Remap
+from session import Session
 import typingtest
 from fingermap import Finger
 from constraintmap import Constraintmap
@@ -33,6 +35,12 @@ from nstroke import (Nstroke, Tristroke, akl_bistroke_tags, all_bistroke_categor
                      tristroke_category)
 from typingdata import TypingData
 
+def main2(stdscr: curses.window):
+    session_ = Session(stdscr)
+    while True:
+        for name, args in session_.prompt_user_command():
+            if command.run_command(name, args, session_) == "quit":
+                return
 
 def main(stdscr: curses.window):
     

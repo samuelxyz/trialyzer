@@ -107,6 +107,32 @@ finger_names = {
     "P": "pinky total"
 }
 
+def parse_category(user_input: str = ""):
+    """Returns None if category not found."""
+    if not user_input:
+            category_name = ""
+    else:
+        category_name = user_input.lower().strip()
+
+    if "(" in category_name:
+        category_name = category_name[:category_name.find("(")].strip()
+        # )) missing parentheses for rainbow brackets extension lmao
+    if category_name in all_tristroke_categories:
+        return category_name
+    elif category_name in category_display_names.values():
+        for cat in category_display_names:
+            if category_display_names[cat] == category_name:
+                return cat
+    else:
+        return None 
+
+def category_display_name(category: str):
+    category_name = (category_display_names[category] 
+        if category in category_display_names else category)
+    if category.endswith(".") or not category:
+        category_name += " (total)"
+    return category_name
+
 def applicable_function(target_category: str) -> Callable[[str], bool]:
     """Given a target category, returns a function(category: str) which tells
     whether category is applicable to target_category.
