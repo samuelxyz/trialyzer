@@ -341,6 +341,7 @@ class Layout:
         # So this should be fine for now
 
 def get_layout(name: str) -> Layout:
+    """Raises FileNotFoundError if layout does not exist."""
     if name not in Layout.loaded:
         Layout.loaded[name] = Layout(name)
     return Layout.loaded[name]

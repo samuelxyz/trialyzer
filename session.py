@@ -1,5 +1,6 @@
 import json
 import curses
+import curses.textpad
 import math
 
 import constraintmap
@@ -15,7 +16,7 @@ class Session:
     """
 
     def __init__(self, stdscr: curses.window) -> None:
-        startup_messages = []
+        self.startup_messages = []
     
         try:
             with open("session_settings.json") as settings_file:
@@ -60,9 +61,9 @@ class Session:
                     "precision": 500,
                 }
                 some_default = True
-            startup_messages.append(("Loaded user settings", gui_util.green))
+            self.startup_messages.append(("Loaded user settings", gui_util.green))
             if some_default:
-                startup_messages.append((
+                self.startup_messages.append((
                     "Set some missing/bad settings to default", gui_util.blue))
         except (FileNotFoundError, KeyError, json.decoder.JSONDecodeError):
             self.speeds_file = "default"
@@ -78,7 +79,7 @@ class Session:
                 "shift_policy": "once",
                 "precision": 500,
             }
-            startup_messages.append(
+            self.startup_messages.append(
                 ("Using default user settings", gui_util.red))
 
         self.typingdata_ = TypingData(self.speeds_file)
@@ -91,23 +92,26 @@ class Session:
         gui_util.init_colors()
 
         self.height, self.twidth = stdscr.getmaxyx()
-        self.titlebar = stdscr.subwin(1,twidth,0,0)
+        self.titlebar = stdscr.subwin(1,self.twidth,0,0)
         self.titlebar.bkgd(" ", curses.A_REVERSE)
-        self.titlebar.addstr("Trialyzer" + " "*(twidth-10))
+        self.titlebar.addstr("Trialyzer" + " "*(self.twidth-10))
         self.titlebar.refresh()
         self.content_win = stdscr.subwin(1, 0)
 
-        height, twidth = self.content_win.getmaxyx()
+        self.height, self.twidth = self.content_win.getmaxyx()
         self.header_lines = math.ceil(len(self.header_text())/2)
-        self.message_win = self.content_win.derwin(
-            height-self.header_lines-2, int(twidth/3), self.header_lines, 0)
+        self.repl_win = self.content_win.derwin(
+            self.height-self.header_lines-2, int(self.twidth/3), 
+            self.header_lines, 0
+        )
         self.right_pane = self.content_win.derwin(
-            height-self.header_lines-2, int(twidth*2/3), self.header_lines, 
-            int(twidth/3))
-        for win in (self.message_win, self.right_pane):
+            self.height-self.header_lines-2, int(self.twidth*2/3), 
+            self.header_lines, int(self.twidth/3)
+        )
+        for win in (self.repl_win, self.right_pane):
             win.scrollok(True)
             win.idlok(True)
-        self.input_win = self.content_win.derwin(height-2, 2)
+        self.input_win = self.content_win.derwin(self.height-2, 2)
         self.input_box = curses.textpad.Textbox(self.input_win, True)        
 
         for item in self.startup_messages:
@@ -210,7 +214,7 @@ class Session:
     def say(self, msg: str, color: int = 0, 
                 win: curses.window = ...):
         if win == ...:
-            win = self.message_win
+            win = self.repl_win
         gui_util.insert_line_bottom(
             msg, win, curses.color_pair(color))
         win.refresh()

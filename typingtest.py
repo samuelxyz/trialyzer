@@ -10,6 +10,7 @@ import nstroke
 import layout
 import gui_util
 from corpus import default_lower, default_upper
+import session
 
 key_events = queue.Queue()
 
@@ -32,40 +33,36 @@ def wpm(ms) -> int:
 shift_aliases = set(
     frozenset(pair) for pair in zip(default_lower, default_upper))
 
-def test(win: curses.window, tristroke: nstroke.Tristroke, 
-         user_layout: layout.Layout, csvdata: dict,
-         estimate: float = None, key_aliases: Collection[frozenset[str]] = ()):
+def test(s: session.Session, tristroke: nstroke.Tristroke,
+         estimate: float = None):
     """Run a typing test with the specified tristroke.
-    The new data is saved into csvdata.
-
-    csvdata is the output of trialyzer.load_csv_data(), 
-    aka dict[Tristroke, speeds_01, speeds_12]
+    The new data is saved into s.typingdata_.csv_data.
     """
 
     curses.curs_set(0)
 
-    win.clear()
-    win.addstr(1, 0, "Typing test - Press esc to finish")
+    s.right_pane.clear()
+    s.right_pane.addstr(1, 0, "Typing test - Press esc to finish")
 
-    height, width = win.getmaxyx()
+    height, width = s.right_pane.getmaxyx()
     stats_win_height = 14
     if estimate is not None:
         stats_win_height += 1
-    stats_win = win.derwin(stats_win_height, width, 2, 0)
-    message_win = win.derwin(stats_win_height, 0)
+    stats_win = s.right_pane.derwin(stats_win_height, width, 2, 0)
+    message_win = s.right_pane.derwin(stats_win_height, 0)
 
     def message(msg: str, color: int = 0): # mostly for brevity
         gui_util.insert_line_bottom(
             msg, message_win, curses.color_pair(color))
         message_win.refresh()
 
-    trigram = user_layout.to_ngram(tristroke)
+    trigram = s.user_layout.to_ngram(tristroke)
     if not trigram:
         message("User layout does not have a trigram for the specified "
             "tristroke\nExiting!", gui_util.red)
     
     valid_keys = set(trigram)
-    all_aliases = shift_aliases.union(key_aliases)
+    all_aliases = shift_aliases.union(s.key_aliases)
     for key in trigram:
         for set_ in all_aliases:
             if key in set_:
@@ -102,10 +99,10 @@ def test(win: curses.window, tristroke: nstroke.Tristroke,
 
     last_time = time.perf_counter_ns()
     next_index = 0
-    if tristroke not in csvdata:
-        csvdata[tristroke] = ([], [])
-    speeds_01 = csvdata[tristroke][0]
-    speeds_12 = csvdata[tristroke][1]
+    if tristroke not in s.typingdata_.csv_data:
+        s.typingdata_.csv_data[tristroke] = ([], [])
+    speeds_01 = s.typingdata_.csv_data[tristroke][0]
+    speeds_12 = s.typingdata_.csv_data[tristroke][1]
     speeds_02 = list(map(operator.add, speeds_01, speeds_12))
 
     pynput_listener = keyboard.Listener(on_press=on_press,
@@ -175,12 +172,12 @@ def test(win: curses.window, tristroke: nstroke.Tristroke,
         stats_win.addstr(11, 0, format_stats(speeds_02))
 
         stats_win.refresh()
-        win.refresh()
-        win.move(height-1, 0)
+        s.right_pane.refresh()
+        s.right_pane.move(height-1, 0)
 
     if not speeds_01 or not speeds_12:
-        del csvdata[tristroke]
+        del s.typingdata_.csv_data[tristroke]
 
-    win.refresh()
+    s.right_pane.refresh()
     curses.flushinp()
     curses.curs_set(1)

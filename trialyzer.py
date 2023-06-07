@@ -1723,6 +1723,7 @@ def main(stdscr: curses.window):
             "l[ayout] [layout name]: View layout",
             "layouts <search terms>: View multiple layouts",
             "list [page]: List all layouts",
+            "target <layout name>: Set analysis target (for other commands)",
             "q[uit]",
             "----Data commands----",
             "u[se] <layout name>: Set layout used in typing test",
@@ -1743,12 +1744,11 @@ def main(stdscr: curses.window):
             "corpus precision <n|full>: "
                 "Set analysis to use the top n trigrams, or all",
             "-----Analysis commands-----",
-            "target <layout name>: Set analysis target (for other commands)",
             "a[nalyze] [layout name]: Detailed layout analysis",
             "fulla[nalyze] [layout name]: Like analyze but even more detailed",
             "a[nalyze]diff [baseline_layout] <layout>: "
                 "Like analyze but compares two layouts",
-            "a[nalyze]swap [letter1 letter2] [...]: Analyze a swap",
+            "a[nalyze]swap [letter1 letter2 ...] [with ...]: Analyze a swap",
             "f[ingers] [layout name]: Hand/finger usage breakdown",
             "s[tats] [layout name]: Use more conventional freq-only analysis",
             "r[ank]: Rank all layouts by wpm",

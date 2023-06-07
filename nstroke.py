@@ -116,7 +116,6 @@ def parse_category(user_input: str = ""):
 
     if "(" in category_name:
         category_name = category_name[:category_name.find("(")].strip()
-        # )) missing parentheses for rainbow brackets extension lmao
     if category_name in all_tristroke_categories:
         return category_name
     elif category_name in category_display_names.values():
